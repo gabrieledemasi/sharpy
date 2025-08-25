@@ -77,11 +77,13 @@ def compute_mass_matrix(logdensity, q):
     return  inverse_mass_matrix
 
 
-#######LIKELIHOOD UTILS
+
+
+
 import jax.numpy as np
 import jax
 from math import pi, floor
-jax.config.update("jax_enable_x64", True)
+
 
 EARTH_SEMI_MAJOR_AXIS = 6378137.0  # for ellipsoid model of Earth, in m
 EARTH_SEMI_MINOR_AXIS = 6356752.314  # in m
