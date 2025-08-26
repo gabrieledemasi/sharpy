@@ -42,3 +42,31 @@ def build_kernel_fn(kernel, log_posterior, step_size):
     return batched_kernel
 
 
+
+
+
+@jax.jit
+def multinomial_resample(key, particles, weights):
+    cdf = jnp.cumsum(weights)
+    u = jax.random.uniform(key, shape=(len(weights),))
+    idx = jnp.searchsorted(cdf, u)
+    return particles[idx]
+
+
+
+def compute_weight_and_ess_fn(log_posterior):
+    @jax.jit
+    def compute_weight_and_ess(samples, beta_after, beta_before):
+        def log_density_diff(x, beta):
+            return log_posterior(x, beta)
+
+        beta = beta_after - beta_before
+        log_weights = jax.vmap(log_density_diff, in_axes=(0, None))(samples, beta)
+        
+        log_weights = log_weights - jnp.max(log_weights)
+        weights = jnp.exp(log_weights)
+        weights = weights / jnp.sum(weights)
+        ess = (jnp.sum(weights)) ** 2 / jnp.sum(weights**2)
+
+        return weights, ess
+    return compute_weight_and_ess

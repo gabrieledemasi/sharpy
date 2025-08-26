@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 from functools import partial 
 from jax import random, lax
 import blackjax
+from functools import partial
+import time 
 
 
 
@@ -50,6 +52,12 @@ def log_posterior(params, beta=1):
 prior_bounds = jnp.array([[-5, 5], [-5, 5]])
 boundary_conditions = jnp.array([0, 0])  # 0: periodic, 1: reflective
 number_of_particles= 3000
+step_size = 0.1
+
+temperature_schedule = jnp.logspace(-3, 0, 20)
+# temperature_schedule = temperature_schedule[1:]
+
+
 
 
 from blackjax.mcmc import integrators
@@ -66,117 +74,22 @@ initial_position = jax.random.uniform(
 )
 
 
-def build_mass_matrix_fn():
-    def single(pos, beta):
-        logdensity = lambda x: log_posterior(x, beta)
-        
-        return compute_mass_matrix(logdensity, pos)
-    return jax.jit(jax.vmap(single, in_axes=(0, None)))
+
     # return (jax.vmap(single, in_axes=(0, None)))
 
+from smc_functions import build_mass_matrix_fn, build_kernel_fn, multinomial_resample
+from smc_functions import compute_weight_and_ess_fn, make_smc_step_fn
 
-mass_matrix_fn = build_mass_matrix_fn()
+mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
+kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
+compute_weight_and_ess      = compute_weight_and_ess_fn(log_posterior)
+init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, None)))
+make_a_step_vectorized      = make_smc_step_fn(init_fn, kernel_fn, log_posterior)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-temperature_schedule = jnp.logspace(-3, 0, 20)
-temperature_schedule = temperature_schedule[1:]
 
 samples = initial_position
-weights = jnp.ones(M) / M
+weights = jnp.ones(number_of_particles) / number_of_particles
 
-step_size = 0.1
-from functools import partial
-
-
-
-
-
-print(weights, initial_position)
-
-
-
-
-import time 
-
-
-
-init_fn = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, None)))
-
-
-
-def build_kernel_fn(step_size):
-    def _kernel(rng_key, state, beta, metric):
-        logdensity_fn = lambda x: log_posterior(x, beta)
-        return kernel(rng_key, state, logdensity_fn, step_size, metric)
-
-    # JIT-compile the batched kernel function
-    batched_kernel = jax.jit(jax.vmap(_kernel, in_axes=(0, 0, 0, 0), out_axes=(0, 0)))
-    return batched_kernel
-
-
-kernel_fn =build_kernel_fn(step_size)
-
-
-
-
-
-
-def make_a_step_vectorized(position, keys, beta ,matrices):
-    """
-    position: (M, D)
-    beta: scalar or vector
-    """
-    logdensity_fn = lambda x: log_posterior(x, beta)  # Only for init, not passed into JIT
-
-    # Initialize state
-    state = init_fn(position, logdensity_fn, step_size)
-
-    beta_batch = jnp.broadcast_to(beta, (position.shape[0],))
-
-    state, info = kernel_fn(keys, state,  beta_batch, matrices)
-
-    return state.position
-
-
-
-@jax.jit
-def compute_weight_and_ess(samples, beta_after, beta_before):
-    def log_density_diff(x, beta):
-        return log_posterior(x, beta)
-
-    beta = beta_after - beta_before
-    log_weights = jax.vmap(log_density_diff, in_axes=(0, None))(samples, beta)
-    
-    log_weights = log_weights - jnp.max(log_weights)
-    weights = jnp.exp(log_weights)
-    weights = weights / jnp.sum(weights)
-    ess = (jnp.sum(weights)) ** 2 / jnp.sum(weights**2)
-
-    return weights, ess
-
-@jax.jit
-def multinomial_resample(key, particles, weights):
-    cdf = jnp.cumsum(weights)
-    u = jax.random.uniform(key, shape=(len(weights),))
-    idx = jnp.searchsorted(cdf, u)
-    return particles[idx]
 
 
 
