@@ -5,6 +5,8 @@ from jax import random
 from blackjax.mcmc import integrators
 import blackjax
 
+import numpy as np 
+
 
 
 
@@ -71,29 +73,34 @@ def compute_weight_and_ess_fn(log_posterior):
         log_weights = jax.vmap(log_density_diff, in_axes=(0, None))(samples, beta)
         
         log_weights = log_weights - jnp.max(log_weights)
-        weights = jnp.exp(log_weights)
-        weights = weights / jnp.sum(weights)
+        weights_nonorm = jnp.exp(log_weights)
+        weights = weights_nonorm / jnp.sum(weights_nonorm)
         ess = (jnp.sum(weights)) ** 2 / jnp.sum(weights**2)
 
-        return weights, ess
+        return weights,weights_nonorm, ess
     return compute_weight_and_ess
 
 
 def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess):
 
     def smc_step(samples, beta,beta_prev, weights,  resampling_key, mutation_keys):
+
+
+        
+
+
+
+        # jax.debug.print("Mutation done: {samples}", samples=samples)
+        # Reweighting
+        weights, weights_nonorm,  ess    = compute_weight_and_ess(samples, beta, beta_prev)
+
         # Resampling
         samples         = multinomial_resample(resampling_key, samples, weights)
         # Mutation
         matrices        = mass_matrix_fn(samples, beta)
-        
         samples         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
 
-        # jax.debug.print("Mutation done: {samples}", samples=samples)
-        # Reweighting
-        weights, ess    = compute_weight_and_ess(samples, beta, beta_prev)
-
-        return samples, weights, ess
+        return samples, weights, weights_nonorm, ess
     
     return smc_step
 
@@ -118,7 +125,7 @@ def run_smc(log_posterior, prior_bounds, boundary_conditions, temperature_schedu
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
 
-
+    samples_dict                 = {}        
 
     initial_position = jax.random.uniform(
                                         jax.random.PRNGKey(1),
@@ -143,14 +150,44 @@ def run_smc(log_posterior, prior_bounds, boundary_conditions, temperature_schedu
     samples         = initial_position
 
     for step in range(n_steps):
-        
-        beta                   = temperature_schedule[step]
-        resampling_key         = resampling_keys[step]
-        mutation_key           = mutation_keys[step]
 
-        samples, weights, ess  = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
+        samples_dict[int(step)] = {}
+
+        beta                    = temperature_schedule[step]
+        resampling_key          = resampling_keys[step]
+        mutation_key            = mutation_keys[step]
+
+        samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
+        samples_dict[step]["samples"]           = np.array(samples).tolist()
+        samples_dict[step]["weights"]           = np.array(weights_nonorm).tolist()
+        samples_dict[step]["ess"]               = float(ess)
+
         print("ess = {}".format(ess))
         
-        beta_prev              = beta
+        beta_prev                               = beta
 
-    return samples
+    return samples, samples_dict
+
+
+def compute_evidence(result_path):
+    import json
+    with open(result_path, 'r') as f:
+        result = json.load(f)
+    evidence = 1.0
+    error    = 0.0
+    
+
+    for key in result.keys():
+        if float(key) > 1:
+            
+            evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+            
+            
+            evidence      *= evidence_piece
+
+            print(np.log(evidence_piece))
+            error_piece    = np.var(result[key]['weights'])/(np.sum(result[key]['weights'])/len(result[key]['weights']))**2/len(result[key]['weights'])
+            error      += error_piece
+            
+    return np.log(evidence), np.sqrt(error)
+

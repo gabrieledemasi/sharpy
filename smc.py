@@ -19,6 +19,7 @@ from jax import random, lax
 import blackjax
 from functools import partial
 import time 
+import json
 
 
 
@@ -36,19 +37,43 @@ import time
 
 
 
-
+from jax.scipy.special import logsumexp
  
 def prior(params):
-    return  0.0  # Uniform prior within bounds, log(1) = 0
+    return  0.0 -100 # Uniform prior within bounds, log(1) = 0
+
+def log_likelihood_bimodal(params):
+    mean1 = jnp.array([-0.0, -0.0])
+    mean2 = jnp.array([1.0, 1.0])
+    
+    cov  = jnp.array([[1.0, 0.], [0., 1.0]])
+
+    inv_cov = jnp.linalg.inv(cov)
+    
+    diff1 = params - mean1
+    diff2 = params - mean2
+    exponent1 = -0.5 * jnp.einsum('...i,ij,...j->...', diff1, inv_cov, diff1)
+    exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
+    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+    logpdf1 = exponent1 + norm_const
+    logpdf2 = exponent2 + norm_const
+    return logsumexp(jnp.array([logpdf1, logpdf2]))
 
 def log_likelihood(params):
     mean = jnp.array([0.0, 0.0])
-    cov  = jnp.array([[1.0, 0.], [0., 1.0]])
+    cov  = jnp.array([[1.10, 0.], [0., 0.10]])
     inv_cov = jnp.linalg.inv(cov)
     diff = params - mean
     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
     return exponent + norm_const
+
+
+
+
+
+def prior(params):
+    return  0. # Uniform prior within bounds, log(1) = 0
 
 
 
@@ -59,9 +84,9 @@ def log_posterior(params, beta=1):
 
 prior_bounds            = jnp.array([[-5, 5], [-5, 5]])
 boundary_conditions     = jnp.array([0, 0])  # 0: periodic, 1: reflective
-number_of_particles     = 2000
-step_size               = 0.1
-temperature_schedule    = jnp.logspace(-2, 0, 10)
+number_of_particles     = 3000
+step_size               = 1e-2
+temperature_schedule    = jnp.logspace(-2, 0, 20)
 temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
 truth                   = None
@@ -79,7 +104,7 @@ from smc_functions import run_smc
 start  = time.time()
 
 
-final_samples = run_smc(log_posterior, 
+final_samples, samples_dict = run_smc(log_posterior, 
                         prior_bounds, 
                         boundary_conditions, 
                         temperature_schedule, 
@@ -88,7 +113,9 @@ final_samples = run_smc(log_posterior,
                         master_key=jax.random.PRNGKey(0)
                         )
 
+
 samples = final_samples
+
 
 sampling_time = time.time()-start
 print("time = {}".format(sampling_time))
@@ -107,6 +134,12 @@ import numpy as np
 np.savetxt(os.path.join(outdir,"samples.txt"),np.array(samples),)
 
 np.savetxt(os.path.join(outdir,"sampling_time.txt"),np.array([sampling_time]))
+with open(f'{folder}/{label}/result.json', 'w') as fp:
+    json.dump(samples_dict, fp)
+
+from smc_functions import compute_evidence
+z, dz = compute_evidence(f'{folder}/{label}/result.json')
+print(z, dz)
 
 
 if truth is not None:
