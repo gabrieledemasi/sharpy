@@ -72,7 +72,7 @@ def compute_weight_and_ess_fn(log_posterior):
         beta = beta_after - beta_before
         log_weights = jax.vmap(log_density_diff, in_axes=(0, None))(samples, beta)
         
-        log_weights = log_weights - jnp.max(log_weights)
+        log_weights = log_weights #- jnp.max(log_weights)
         weights_nonorm = jnp.exp(log_weights)
         weights = weights_nonorm / jnp.sum(weights_nonorm)
         ess = (jnp.sum(weights)) ** 2 / jnp.sum(weights**2)
@@ -98,6 +98,7 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
         samples         = multinomial_resample(resampling_key, samples, weights)
         # Mutation
         matrices        = mass_matrix_fn(samples, beta)
+        
         samples         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
 
         return samples, weights, weights_nonorm, ess
@@ -159,7 +160,7 @@ def run_smc(log_posterior, prior_bounds, boundary_conditions, temperature_schedu
 
         samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
         samples_dict[step]["samples"]           = np.array(samples).tolist()
-        samples_dict[step]["weights"]           = np.array(weights_nonorm).tolist()
+        samples_dict[step]["weights"]           = np.array(weights).tolist()
         samples_dict[step]["ess"]               = float(ess)
 
         print("ess = {}".format(ess))
@@ -178,16 +179,19 @@ def compute_evidence(result_path):
     
 
     for key in result.keys():
-        if float(key) > 1:
+        if float(key) > -1:
             
             evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
             
             
             evidence      *= evidence_piece
 
-            print(np.log(evidence_piece))
-            error_piece    = np.var(result[key]['weights'])/(np.sum(result[key]['weights'])/len(result[key]['weights']))**2/len(result[key]['weights'])
-            error      += error_piece
+            ### compute evidence with bootstraping
+            boot_weights = np.array(result[key]['weights'])
+            
+            dlogz_piece = np.var([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])
+            
+            error += dlogz_piece 
             
     return np.log(evidence), np.sqrt(error)
 

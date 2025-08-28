@@ -39,25 +39,24 @@ import json
 
 from jax.scipy.special import logsumexp
  
-def prior(params):
-    return  0.0 -100 # Uniform prior within bounds, log(1) = 0
 
-def log_likelihood_bimodal(params):
-    mean1 = jnp.array([-0.0, -0.0])
-    mean2 = jnp.array([1.0, 1.0])
-    
-    cov  = jnp.array([[1.0, 0.], [0., 1.0]])
 
-    inv_cov = jnp.linalg.inv(cov)
+# def log_likelihood(params):
+#     mean1 = jnp.array([-1.0, -1.0])
+#     mean2 = jnp.array([1.0, 1.0])
     
-    diff1 = params - mean1
-    diff2 = params - mean2
-    exponent1 = -0.5 * jnp.einsum('...i,ij,...j->...', diff1, inv_cov, diff1)
-    exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
-    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    logpdf1 = exponent1 + norm_const
-    logpdf2 = exponent2 + norm_const
-    return logsumexp(jnp.array([logpdf1, logpdf2]))
+#     cov  = jnp.array([[0.01, 0.], [0., 0.01]])
+
+#     inv_cov = jnp.linalg.inv(cov)
+    
+#     diff1 = params - mean1
+#     diff2 = params - mean2
+#     exponent1 = -0.5 * jnp.einsum('...i,ij,...j->...', diff1, inv_cov, diff1)
+#     exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
+#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+#     logpdf1 = exponent1 + norm_const
+#     logpdf2 = exponent2 + norm_const
+#     return logsumexp(jnp.array([logpdf1, logpdf2]))
 
 def log_likelihood(params):
     mean = jnp.array([0.0, 0.0])
@@ -66,14 +65,14 @@ def log_likelihood(params):
     diff = params - mean
     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    return exponent + norm_const
+    return exponent  + norm_const
 
 
 
 
 
 def prior(params):
-    return  0. # Uniform prior within bounds, log(1) = 0
+    return 0. # Uniform prior within bounds, log(1) = 0
 
 
 
@@ -84,7 +83,7 @@ def log_posterior(params, beta=1):
 
 prior_bounds            = jnp.array([[-5, 5], [-5, 5]])
 boundary_conditions     = jnp.array([0, 0])  # 0: periodic, 1: reflective
-number_of_particles     = 3000
+number_of_particles     = 1000
 step_size               = 1e-2
 temperature_schedule    = jnp.logspace(-2, 0, 20)
 temperature_schedule    = temperature_schedule[1:]
