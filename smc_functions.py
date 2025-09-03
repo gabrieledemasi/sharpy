@@ -175,7 +175,7 @@ def compute_evidence(result_path):
     with open(result_path, 'r') as f:
         result = json.load(f)
     evidence = 1.0
-    error    = 0.0
+    errors    = []
     
 
     for key in result.keys():
@@ -188,10 +188,13 @@ def compute_evidence(result_path):
 
             ### compute evidence with bootstraping
             boot_weights = np.array(result[key]['weights'])
+            evidences = [np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)]
+            print(len(evidences))
+            print(np.var(evidences))
+            print(np.var(np.log(evidences)))
+            dlogz_piece = np.var((np.log([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])))
+            errors.append(dlogz_piece)
             
-            dlogz_piece = np.var([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])
             
-            error += dlogz_piece 
-            
-    return np.log(evidence), np.sqrt(error)
+    return np.log(evidence), np.sqrt(np.sum(np.cumsum(errors)))
 
