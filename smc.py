@@ -67,18 +67,48 @@ def log_likelihood(params):
     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
     return exponent  + norm_const
 
-
-
-
-
 def prior(params):
     return 0. # Uniform prior within bounds, log(1) = 0
 
-
-
-
 def log_posterior(params, beta=1):
     return log_likelihood(params)*beta + prior(params)
+
+
+
+detector_settings = {
+        "H1": {
+            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "data_file": None,
+            "channel": None,
+        },
+        "L1": {
+            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "data_file": None,
+            "channel": None,
+        },
+        "V1": {
+            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "data_file": None,
+            "channel": None,
+        },
+    }
+
+from likelihood import GWNetwork
+gw_network = GWNetwork(detector_settings)
+
+batched_detector = gw_network.batched_detector
+print(batched_detector)
+
+
+
+
+import sys
+sys.exit()
+
+
+
+
+
 
 
 prior_bounds            = jnp.array([[-5, 5], [-5, 5]])
