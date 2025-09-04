@@ -83,7 +83,7 @@ def log_posterior(params, beta=1):
 
 prior_bounds            = jnp.array([[-5, 5], [-5, 5]])
 boundary_conditions     = jnp.array([0, 0])  # 0: periodic, 1: reflective
-number_of_particles     = 10000
+number_of_particles     = 2000
 step_size               = 1e-2
 temperature_schedule    = jnp.logspace(-2, 0, 20)
 temperature_schedule    = temperature_schedule[1:]
@@ -137,9 +137,9 @@ with open(f'{folder}/{label}/result.json', 'w') as fp:
     json.dump(samples_dict, fp)
 
 from smc_functions import compute_evidence
-z, dz = compute_evidence(f'{folder}/{label}/result.json')
-print(z, dz)
+z, dz = compute_evidence(folder, label)
 
+print(f"log_evidnence  = {z} +- {dz}")
 
 if truth is not None:
     np.savetxt(os.path.join(outdir,"truth.txt"),np.array(truth),)

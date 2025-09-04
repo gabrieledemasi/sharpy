@@ -170,8 +170,9 @@ def run_smc(log_posterior, prior_bounds, boundary_conditions, temperature_schedu
     return samples, samples_dict
 
 
-def compute_evidence(result_path):
+def compute_evidence(folder, label):
     import json
+    result_path = f'{folder}/{label}/result.json'
     with open(result_path, 'r') as f:
         result = json.load(f)
     evidence = 1.0
@@ -189,12 +190,13 @@ def compute_evidence(result_path):
             ### compute evidence with bootstraping
             boot_weights = np.array(result[key]['weights'])
             evidences = [np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)]
-            print(len(evidences))
-            print(np.var(evidences))
-            print(np.var(np.log(evidences)))
+
             dlogz_piece = np.var((np.log([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])))
             errors.append(dlogz_piece)
             
-            
-    return np.log(evidence), np.sqrt(np.sum(np.cumsum(errors)))
+    
+    logz, dlogz  = np.log(evidence), np.sqrt(np.sum(np.cumsum(errors)))
+    np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
+
+    return logz, dlogz
 
