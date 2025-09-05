@@ -44,6 +44,7 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
 def build_kernel_fn(kernel, log_posterior, step_size):
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
+
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
 
     # JIT-compile the batched kernel function
@@ -197,4 +198,62 @@ def compute_evidence(folder, label):
     np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
 
     return logz, dlogz
+
+
+
+
+
+
+
+def find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, number_of_parallel_chains,  step_size,  ):
+
+
+    def evolve_point(position, log_posterior, prior_bounds, boundary_conditions,  number_of_samples, step_size,   master_key):
+        kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+        mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
+        init_fn                     = (blackjax.nuts.init)
+
+        @jax.jit
+        def one_step(state, rng_key):
+            state, _ = kernel(rng_key, state, log_posterior, step_size, compute_mass_matrix(log_posterior, state.position), )
+            return state, state
+        
+        initial_state               = init_fn(position, log_posterior,)
+        keys                        = jax.random.split(master_key, int(number_of_samples))
+        _, states                   = jax.lax.scan(one_step, initial_state, keys)
+        return states.position
+
+
+
+    points      = jax.random.uniform(
+                                    jax.random.PRNGKey(1),
+                                    shape=(number_of_parallel_chains, len(prior_bounds)),
+                                    minval=prior_bounds[:, 0],
+                                    maxval=prior_bounds[:, 1]
+                                    )
+    
+
+    keys = jax.random.split(jax.random.PRNGKey(0), number_of_parallel_chains)
+    evolve_points = jax.vmap(evolve_point, in_axes=(0, None, None, None, None, None, 0))
+    
+    chains = evolve_points(points ,
+                            log_posterior,
+                            prior_bounds,
+                            boundary_conditions,
+                            number_of_samples_single_chain, 
+                            step_size,
+                            keys
+                            )
+    samples = np.array(chains).reshape(-1, len(prior_bounds))
+    LL_values = jax.vmap(log_posterior)(jnp.array(samples))
+    max_likelihood_point = samples[np.argmax(LL_values)]
+
+    
+
+    return  samples, max_likelihood_point
+
+
+
+    
+
 

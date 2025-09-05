@@ -278,7 +278,7 @@ class GWNetwork:
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary.Frequency
-    h_plus, h_cross = template(params, f)
+    h_plus, h_cross = TaylorF2(params, f)
 
     latitude = detector_dictionary.latitude
     longitude = detector_dictionary.longitude
