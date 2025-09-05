@@ -86,10 +86,6 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
     def smc_step(samples, beta,beta_prev, weights,  resampling_key, mutation_keys):
 
 
-        
-
-
-
         # jax.debug.print("Mutation done: {samples}", samples=samples)
         # Reweighting
         weights, weights_nonorm,  ess    = compute_weight_and_ess(samples, beta, beta_prev)
@@ -102,6 +98,8 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
         samples         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
 
         return samples, weights, weights_nonorm, ess
+    
+    
     
     return smc_step
 

@@ -12,7 +12,7 @@ import os
 import jax
 import jax.numpy as jnp
 # jax.config.update("jax_enable_x64", False)  # Enable 64-bit precision
-
+jax.config.update("jax_enable_x64", True) 
 import matplotlib.pyplot as plt
 from functools import partial 
 from jax import random, lax
@@ -93,14 +93,30 @@ detector_settings = {
         },
     }
 
-from likelihood import GWNetwork
-gw_network = GWNetwork(detector_settings)
+
+
+truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+
+from likelihood import GWNetwork, log_likelihood_det
+gw_network = GWNetwork(detector_settings,
+                       injection_parameters=truth,
+    
+                       )
 
 batched_detector = gw_network.batched_detector
-print(batched_detector)
+
+log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
+
+def log_posterior(params, beta=1):
+    return log_likelihood(params)*beta + prior(params)
 
 
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 6.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
 
+parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+
+
+print("Test log likelihood: ", log_likelihood(parameters))
 
 import sys
 sys.exit()

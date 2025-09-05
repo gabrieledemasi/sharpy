@@ -10,7 +10,7 @@ from functools import partial
 import jax
 from utils import GreenwichMeanSiderealTime
 from utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses
-
+jax.config.update("jax_enable_x64", True) 
 from noise import load_data, generate_data
 from ripplegw.waveforms import IMRPhenomD
 from ripplegw import ms_to_Mc_eta
@@ -36,7 +36,7 @@ class GWDetector:
     def __init__(self,
                  name,
                  datafile           = None,
-                 psd_file           = None,
+                 psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
                  simulation         = False,
                  psd_method         = 'welch',
                  T                  = 4.0,
@@ -47,7 +47,7 @@ class GWDetector:
                  fhigh              = 512,
                  zero_noise         = True,
                  calibration        = None,
-                 download_data      = 1,
+                 download_data      = 0,
                  datalen_download   = 64,
                  channel            = '',
                  gwpy_tag           = None):
@@ -163,7 +163,7 @@ class Detector:
 
 
 def stack_detectors(detectors_list):
-
+    
     return Detector(
         Frequency           = jnp.stack([d["Frequency"] for d in detectors_list]),
         FrequencySeries     = jnp.stack([d["FrequencySeries"] for d in detectors_list]),
@@ -210,6 +210,7 @@ class GWNetwork:
     def __init__(self, detectors_setting,
                        injection_parameters = None,
                         ):
+        
         self.detectors_settings = detectors_setting
         self.injection_parameters = injection_parameters
         self.list_of_detectors_necessary_parameters = [ "FrequencySeries", 
@@ -227,14 +228,17 @@ class GWNetwork:
                                         ]
         
         self.detectors        = self.detector_constructor()
+        
         self.batched_detector = self.construct_batched_detectors()
+
         if self.injection_parameters is not None:
-            self.batched_detector, self.snr = self.inject_signal_in_noise(self.injection_parameters,
-                                                                     self.batched_detector)
+            print("Injecting signal with parameters: ", self.injection_parameters)
+            self.batched_detector, self.snr = self.inject_signal_in_noise()
+            print("Injected signal with SNR: ", self.snr)
 
 
     def inject_signal_in_noise(self, ):
-        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None, 0))(self.injection_parameters, detector_dictionaries)
+        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None, 0))(self.injection_parameters, self.batched_detector)
         total_snr = jnp.sqrt(jnp.sum(snr**2))
         return detector_dictionaries, total_snr
     
@@ -246,78 +250,35 @@ class GWNetwork:
     
 
     def detector_constructor(self):
-        
+       
         detector_names = self.detectors_settings.keys()
         self.detectors = [GWDetector(name, channel = self.detectors_settings[name]['channel'], 
                             psd_file  = self.detectors_settings[name]['psd_file'],
                             datafile  = self.detectors_settings[name]['data_file'],
                         ).__dict__ for name in detector_names]
+        
         return self.detectors
     
     def construct_batched_detectors(self):
         detectors_list  = [{} for i in self.detectors]
         for i, dict in enumerate(detectors_list):
             for key in self.list_of_detectors_necessary_parameters:
-                dict[key] = jnp.array(self.detectors[i][key])
-        return stack_detectors(detectors_list)
-    
-
-    
+                
+                dict[key] = self.detectors[i][key]
+                
         
-
-    
-    
-
-    
-    
-
-
+        self.batched_detector = stack_detectors(detectors_list)
+        return self.batched_detector
     
 
 
 
 
-
-
-    
-
-
-
-
-
-
-
-
-def log_prior(params):
- 
-    logP = 0.0
-
-    return logP
-
-
-def log_posterior(params, detector_list,):
-    
-    return  log_prior(params) +log_likelihood(params, detector_list)
-
-
-def log_likelihood(params, detector_list):
-
-    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
-
-    # Then use jnp.sum
-    return jnp.sum(log_likelihoods)
-
-
-def single_detector_log_likelihood(params, detector_dictionary):
-
-    h = project_waveform(params, detector_dictionary)
-    residuals = detector_dictionary.FrequencySeries - h
-    return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real
 
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary.Frequency
-    h_plus, h_cross = TaylorF2(params, f)
+    h_plus, h_cross = template(params, f)
 
     latitude = detector_dictionary.latitude
     longitude = detector_dictionary.longitude
@@ -520,3 +481,31 @@ def template(params, frequency_array):
 
 
     return hp, hc 
+
+
+
+
+
+
+
+######Likelihood 
+
+
+
+
+
+
+
+def log_likelihood_det(params, detector_list):
+
+    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
+
+    # Then use jnp.sum
+    return jnp.sum(log_likelihoods)
+
+
+def single_detector_log_likelihood(params, detector_dictionary):
+
+    h = project_waveform(params, detector_dictionary)
+    residuals = detector_dictionary.FrequencySeries - h
+    return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real
