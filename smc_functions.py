@@ -210,12 +210,11 @@ def find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  numbe
 
     def evolve_point(position, log_posterior, prior_bounds, boundary_conditions,  number_of_samples, step_size,   master_key):
         kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
-        mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
         init_fn                     = (blackjax.nuts.init)
 
         @jax.jit
         def one_step(state, rng_key):
-            state, _ = kernel(rng_key, state, log_posterior, step_size, compute_mass_matrix(log_posterior, state.position), )
+            state, _ = kernel(rng_key, state, log_posterior, step_size, compute_mass_matrix(log_posterior, state.position), max_num_doublings= 6 )
             return state, state
         
         initial_state               = init_fn(position, log_posterior,)

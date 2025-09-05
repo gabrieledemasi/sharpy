@@ -83,7 +83,7 @@ detector_settings = {
 
 from likelihood import GWNetwork, log_likelihood_det
 
-truth               =  jnp.array([3.0, 0.0, 7.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+truth               =  jnp.array([3.0, 0.0, 6.5, jnp.pi/2, jnp.pi, jnp.pi/2, 20.0, 0.7, 0.0])
 
 
 gw_network          = GWNetwork(detector_settings,
@@ -115,7 +115,7 @@ def log_posterior(params, beta=1):
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [19, 21], [0.4, 1.], [-1e-1, 1e-1]])
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
   
 number_of_particles     = 1000
@@ -133,7 +133,6 @@ label                   = "smc_2d_gaussian"
 
 
 
-point       = jnp.array([4.0, 0.0, 5.0, jnp.pi/2, jnp.pi, jnp.pi/2, 38.0, 0.7, 0.0])
 
 # points      = jax.random.uniform(
 #                                     jax.random.PRNGKey(1),
@@ -179,11 +178,12 @@ point       = jnp.array([4.0, 0.0, 5.0, jnp.pi/2, jnp.pi, jnp.pi/2, 38.0, 0.7, 0
 
 
 from smc_functions import find_global_minimum
-number_of_samples_single_chain = 50
+number_of_samples_single_chain = 100
 number_of_parallel_chains      = 10
 
-samples, max_likelihood_point = find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, number_of_parallel_chains,  step_size, )
-
+samples, max_likelihood_point = find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, 
+                                                number_of_parallel_chains,  step_size, )
+print(max_likelihood_point)
 
 
 from likelihood import project_waveform

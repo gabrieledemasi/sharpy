@@ -45,7 +45,7 @@ class GWDetector:
                  sampling_rate      = 2048,
                  flow               = 20,
                  fhigh              = 512,
-                 zero_noise         = True,
+                 zero_noise         = False,
                  calibration        = None,
                  download_data      = 0,
                  datalen_download   = 64,
