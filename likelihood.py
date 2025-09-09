@@ -39,13 +39,13 @@ class GWDetector:
                  psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
                  simulation         = False,
                  psd_method         = 'welch',
-                 T                  = 4.0,
+                 T                  = 8.0,
                  starttime          = 1126259462.4-3,
                  trigtime           = 1126259462.4,
                  sampling_rate      = 2048,
                  flow               = 20,
                  fhigh              = 512,
-                 zero_noise         = False,
+                 zero_noise         = True,
                  calibration        = None,
                  download_data      = 0,
                  datalen_download   = 64,
@@ -184,15 +184,15 @@ def inject_signal_in_detector(params, detector_dictionary):
         """
         Inject a signal into the detector noise.
         """
-        h   = project_waveform(params, detector_dictionary)
+        h           = project_waveform(params, detector_dictionary)
         
         # add to the detector noise
         detector_dictionary.FrequencySeries += h
 
-        df  = detector_dictionary.Frequency[1] - detector_dictionary.Frequency[0]
+        df          = detector_dictionary.Frequency[1] - detector_dictionary.Frequency[0]
 
         # signal-to-noise ratio
-        SNR = jnp.sqrt(4.0*df*jnp.sum(jnp.conj(h)*h/detector_dictionary.PowerSpectralDensity).real)
+        SNR         = jnp.sqrt(4.0*df*jnp.sum(jnp.conj(h)*h/detector_dictionary.PowerSpectralDensity).real)
         
         return detector_dictionary, SNR
 
@@ -278,7 +278,7 @@ class GWNetwork:
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary.Frequency
-    h_plus, h_cross = TaylorF2(params, f)
+    h_plus, h_cross = template(params, f)
 
     latitude = detector_dictionary.latitude
     longitude = detector_dictionary.longitude
@@ -462,22 +462,22 @@ def TaylorF2(params, frequency_array):
 
 # @jax.jit
 def template(params, frequency_array):
-    mc              = params[6]
-    q               = params[7]
-    m1_msun, m2_msun       = McQ2Masses(mc, q)
-    chi1            = 0.0 #params[9] # Dimensionless spin
-    chi2            = 0.0 #params[10]
-    tc              = 0.0 # Time of coalescence in seconds
-    phic            = params[4] # Time of coalescence
-    dist_mpc        = jnp.exp(params[2]) # Distance to source in Mpc
-    inclination     = params[3] # Inclination Angle
+    mc                      = params[6]
+    q                       = params[7]
+    m1_msun, m2_msun        = McQ2Masses(mc, q)
+    chi1                    = 0.0 #params[9] # Dimensionless spin
+    chi2                    = 0.0 #params[10]
+    tc                      = 0.0 # Time of coalescence in seconds
+    phic                    = params[4] # Time of coalescence
+    dist_mpc                = jnp.exp(params[2]) # Distance to source in Mpc
+    inclination             = params[3] # Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
-    Mc, eta         = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
 
-    theta_ripple = jnp.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
+    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
     # hp, hc       = IMRPhenomD.gen_IMRPhenomD_hphc(frequency_array, theta_ripple, frequency_array[0]) 
-    hp, hc = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+    hp, hc            = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
 
 
     return hp, hc 

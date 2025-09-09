@@ -83,7 +83,7 @@ detector_settings = {
 
 from likelihood import GWNetwork, log_likelihood_det
 
-truth               =  jnp.array([3.0, 0.0, 6.5, jnp.pi/2, jnp.pi, jnp.pi/2, 20.0, 0.7, 0.0])
+truth               =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 10.0, 0.5, 0.01])
 
 
 gw_network          = GWNetwork(detector_settings,
@@ -115,7 +115,7 @@ def log_posterior(params, beta=1):
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [19, 21], [0.4, 1.], [-1e-1, 1e-1]])
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
   
 number_of_particles     = 1000
@@ -129,84 +129,41 @@ folder                  = "results"
 label                   = "smc_2d_gaussian"
 
 
+# #####Maximum Likelihood finder #####
+
+# from smc_functions import find_global_minimum_nuts, find_global_minimum_jaxopt
+# number_of_samples_single_chain = 100
+# number_of_parallel_chains      = 10
+# step_size                     = 1e-1 * 3
+
+# samples, max_likelihood_point = find_global_minimum_nuts(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, 
+#                                                 number_of_parallel_chains,  step_size, )
 
 
+# print(max_likelihood_point)
 
 
-
-# points      = jax.random.uniform(
-#                                     jax.random.PRNGKey(1),
-#                                     shape=(20, len(prior_bounds)),
-#                                     minval=prior_bounds[:, 0],
-#                                     maxval=prior_bounds[:, 1]
-#                                     )
-
-# # chain       = evolve_point(point , 
-# #                            log_posterior,
-# #                              prior_bounds,
-# #                                boundary_conditions,
-# #                                  number_of_samples, 
-# #                                  step_size,
-# #                                  master_key=jax.random.PRNGKey(0)
-# #                                    )
+# from likelihood import project_waveform
+# projecting_map = jax.vmap(project_waveform, in_axes=(None, 0))
+# waveform_truth = projecting_map(truth, batched_detector)
+# waveform_max   = projecting_map(max_likelihood_point, batched_detector)
 
 
-
-# keys = jax.random.split(jax.random.PRNGKey(0),20)
-# evolve_points = jax.vmap(evolve_point, in_axes=(0, None, None, None, None, None, 0))
-
-# chains = evolve_points(points ,
-#                        log_posterior,
-#                          prior_bounds,
-#                            boundary_conditions,
-#                              50, 
-#                               0.1,
-#                              keys
-#                                )
-
-
-
-
-# print(chains)
-# from corner import corner
+# import matplotlib.pyplot as plt
 # import numpy as np
-
-# samples = np.array(chains).reshape(-1, len(prior_bounds))
-
-# LL_values = jax.vmap(log_likelihood)(jnp.array(samples))
-# print(samples[np.argmax(LL_values)])
-
-
-from smc_functions import find_global_minimum
-number_of_samples_single_chain = 100
-number_of_parallel_chains      = 10
-
-samples, max_likelihood_point = find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, 
-                                                number_of_parallel_chains,  step_size, )
-print(max_likelihood_point)
-
-
-from likelihood import project_waveform
-projecting_map = jax.vmap(project_waveform, in_axes=(None, 0))
-waveform_truth = projecting_map(truth, batched_detector)
-waveform_max   = projecting_map(max_likelihood_point, batched_detector)
-
-
-import matplotlib.pyplot as plt
-import numpy as np
-plt.plot(np.fft.fft(waveform_truth[0]), label = "truth")
-plt.plot(np.fft.fft(waveform_max[0]),   label = "maxL")
-plt.legend()
-plt.savefig("waveform.png")
-plt.show()
+# plt.plot(np.fft.fft(waveform_truth[0]), label = "truth")
+# plt.plot(np.fft.fft(waveform_max[0]),   label = "maxL")
+# plt.legend()
+# plt.savefig("waveform.png")
+# plt.show()
 
 
 
 
-fig = corner(samples, truths = truth)
-fig.savefig("test.png")
-import sys 
-sys.exit()
+# fig = corner(samples, truths = truth)
+# fig.savefig("test.png")
+# import sys 
+# sys.exit()
 
 
 

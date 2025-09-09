@@ -205,7 +205,7 @@ def compute_evidence(folder, label):
 
 
 
-def find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, number_of_parallel_chains,  step_size,  ):
+def find_global_minimum_nuts(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, number_of_parallel_chains,  step_size,  ):
 
 
     def evolve_point(position, log_posterior, prior_bounds, boundary_conditions,  number_of_samples, step_size,   master_key):
@@ -256,3 +256,57 @@ def find_global_minimum(log_posterior, prior_bounds, boundary_conditions,  numbe
     
 
 
+
+
+
+def find_global_minimum_jaxopt(log_posterior, prior_bounds ):   
+    import jax
+    import jax.numpy as jnp
+    import jaxopt
+
+    a  = prior_bounds[:,0]
+    b  = prior_bounds[:,1]
+    
+    def y_to_x(y):
+        s = jax.nn.sigmoid(y)       # (0,1)
+        return a + (b - a) * s      # (a,b)
+
+    def fun_y(y):
+        return log_posterior(y_to_x(y))
+    # Local Newton solver (uses gradients/Hessians automatically)
+    solver = jaxopt.LBFGS(fun=fun_y, maxiter=200, tol=1e-6)
+
+    # One local run
+    def run_one(x0):
+        result = solver.run(init_params=x0)
+        return result.params, result.state.value
+    
+
+
+    # Vectorized over multiple starts
+    batched_run = jax.vmap(run_one, in_axes=0, out_axes=(0, 0))
+
+    def global_optimize(rng, n_starts=64):
+        rng, subkey = jax.random.split(rng)
+        x0s = jax.random.uniform(subkey, shape=(n_starts, len(prior_bounds)),minval=prior_bounds[:, 0],
+                                                              maxval=prior_bounds[:, 1])
+        
+        xs, vals = batched_run(x0s)  # run all in parallel
+        best_idx = jnp.argmin(vals)
+        return xs[best_idx], vals[best_idx]
+
+    # Run
+    rng = jax.random.PRNGKey(0)
+    xopt, fopt = global_optimize(rng, n_starts=10)
+
+    def x_to_y(x):
+    # avoid division by zero with clip
+        s = (x - a) / (b - a)
+        s = jnp.clip(s, 1e-12, 1 - 1e-12)
+        return jnp.log(s) - jnp.log1p(-s) 
+
+    y_opt = x_to_y(xopt)
+
+    print("Best solution:", y_opt)
+    print("Best value:", fopt)
+    return xopt, fopt
