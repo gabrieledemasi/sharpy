@@ -45,17 +45,17 @@ from jax.scipy.special import logsumexp
 #     logpdf2 = exponent2 + norm_const
 #     return logsumexp(jnp.array([logpdf1, logpdf2]))
 
-# def log_likelihood(params):
-#     mean = jnp.array([0.0, 0.0])
-#     cov  = jnp.array([[1.10, 0.], [0., 0.10]])
-#     inv_cov = jnp.linalg.inv(cov)
-#     diff = params - mean
-#     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
-#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-#     return exponent  + norm_const
+def log_likelihood(params):
+    mean = jnp.array([0.0, 0.0])
+    cov  = jnp.array([[1.10, 0.], [0., 0.10]])
+    inv_cov = jnp.linalg.inv(cov)
+    diff = params - mean
+    exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
+    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+    return exponent  + norm_const
 
-# def prior(params):
-#     return 0. # Uniform prior within bounds, log(1) = 0
+def prior(params):
+    return 0. # Uniform prior within bounds, log(1) = 0
 
 # def log_posterior(params, beta=1):
 #     return log_likelihood(params)*beta + prior(params)
@@ -116,12 +116,15 @@ from likelihood import GWNetwork, log_likelihood_det
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+# prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
+# boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+
+prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
+boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
   
-number_of_particles     = 1000
-step_size               = 1e-1
-temperature_schedule    = jnp.logspace(-2, 0, 10)
+number_of_particles     = 2000
+step_size               = 1e-2
+temperature_schedule    = jnp.logspace(-2, 0, 20)
 temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
 
@@ -218,8 +221,8 @@ z, dz = compute_evidence(folder, label)
 
 print(f"log_evidnence  = {z} +- {dz}")
 
-if truth is not None:
-    np.savetxt(os.path.join(outdir,"truth.txt"),np.array(truth),)
+# if truth is not None:
+#     np.savetxt(os.path.join(outdir,"truth.txt"),np.array(truth),)
 
 # np.savetxt(os.path.join(outdir, "snr.txt"),  np.array([snr]) )
 
@@ -228,7 +231,7 @@ if truth is not None:
 # 
 
 fig = corner(np.array(samples), 
-                truths=truth,  
+                # truths=truth,  
                 show_titles=True, 
                 title_kwargs={"fontsize": 12}, 
                 labels = parameters_names)
