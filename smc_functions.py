@@ -64,14 +64,13 @@ def multinomial_resample(key, particles, weights):
 
 
 
-def compute_weight_and_ess_fn(log_posterior):
+def compute_weight_and_ess_fn(log_likelihood):
     @jax.jit
     def compute_weight_and_ess(samples, beta_after, beta_before):
-        def log_density_diff(x, beta):
-            return log_posterior(x, beta)
+        
 
-        beta = beta_after - beta_before
-        log_weights = jax.vmap(log_density_diff, in_axes=(0, None))(samples, beta)
+        beta_diff = beta_after - beta_before
+        log_weights = jax.vmap(log_likelihood,)(samples) * beta_diff
         
         log_weights = log_weights #- jnp.max(log_weights)
         weights_nonorm = jnp.exp(log_weights)
@@ -114,13 +113,16 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
 
 
 
-def run_smc(log_posterior, prior_bounds, boundary_conditions, temperature_schedule, number_of_particles, step_size,   master_key):
+def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperature_schedule, number_of_particles, step_size,   master_key):
 
-    kernel                 = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+    def log_posterior(params, beta=1):
+        return log_likelihood(params)*beta + prior(params)
 
+    kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+    
     mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
     kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
-    compute_weight_and_ess      = compute_weight_and_ess_fn(log_posterior)
+    compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )

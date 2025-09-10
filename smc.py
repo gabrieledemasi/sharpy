@@ -83,33 +83,34 @@ detector_settings = {
 
 from likelihood import GWNetwork, log_likelihood_det
 
-truth               =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 10.0, 0.5, 0.01])
+
+# truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+
+# from likelihood import GWNetwork, log_likelihood_det
+# gw_network = GWNetwork(detector_settings,
+#                        injection_parameters=truth,
+    
+#                        )
+
+# batched_detector = gw_network.batched_detector
+
+# log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
-gw_network          = GWNetwork(detector_settings,
-                            injection_parameters=truth,)
-
-batched_detector    = gw_network.batched_detector
-
-
-
-
-log_likelihood      = partial(log_likelihood_det, detector_list=batched_detector)
-
-
-def prior(params):
-    return 0. 
-
-def log_posterior(params, beta=1):
-    return log_likelihood(params)*beta + prior(params)
+# def log_posterior(params, beta=1):
+#     return log_likelihood(params)*beta + prior(params)
 
 
 
+# prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 6.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
+
+# parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
 
+# print("Test log likelihood: ", log_likelihood(parameters))
 
-
-
+# import sys
+# sys.exit()
 
 
 
@@ -176,7 +177,10 @@ from smc_functions import run_smc
 start  = time.time()
 
 
-final_samples, samples_dict = run_smc(log_posterior, 
+final_samples, samples_dict = run_smc(log_likelihood, 
+                                        prior, 
+
+
                                         prior_bounds, 
                                         boundary_conditions, 
                                         temperature_schedule, 
