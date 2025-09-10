@@ -44,6 +44,7 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
 def build_kernel_fn(kernel, log_posterior, step_size):
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
+
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
 
     # JIT-compile the batched kernel function
@@ -200,3 +201,114 @@ def compute_evidence(folder, label):
 
     return logz, dlogz
 
+
+
+
+
+
+
+def find_global_minimum_nuts(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, number_of_parallel_chains,  step_size,  ):
+
+
+    def evolve_point(position, log_posterior, prior_bounds, boundary_conditions,  number_of_samples, step_size,   master_key):
+        kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+        init_fn                     = (blackjax.nuts.init)
+
+        @jax.jit
+        def one_step(state, rng_key):
+            state, _ = kernel(rng_key, state, log_posterior, step_size, compute_mass_matrix(log_posterior, state.position), max_num_doublings= 6 )
+            return state, state
+        
+        initial_state               = init_fn(position, log_posterior,)
+        keys                        = jax.random.split(master_key, int(number_of_samples))
+        _, states                   = jax.lax.scan(one_step, initial_state, keys)
+        return states.position
+
+
+
+    points      = jax.random.uniform(
+                                    jax.random.PRNGKey(1),
+                                    shape=(number_of_parallel_chains, len(prior_bounds)),
+                                    minval=prior_bounds[:, 0],
+                                    maxval=prior_bounds[:, 1]
+                                    )
+    
+
+    keys = jax.random.split(jax.random.PRNGKey(0), number_of_parallel_chains)
+    evolve_points = jax.vmap(evolve_point, in_axes=(0, None, None, None, None, None, 0))
+    
+    chains = evolve_points(points ,
+                            log_posterior,
+                            prior_bounds,
+                            boundary_conditions,
+                            number_of_samples_single_chain, 
+                            step_size,
+                            keys
+                            )
+    samples = np.array(chains).reshape(-1, len(prior_bounds))
+    LL_values = jax.vmap(log_posterior)(jnp.array(samples))
+    max_likelihood_point = samples[np.argmax(LL_values)]
+
+    
+
+    return  samples, max_likelihood_point
+
+
+
+    
+
+
+
+
+
+def find_global_minimum_jaxopt(log_posterior, prior_bounds ):   
+    import jax
+    import jax.numpy as jnp
+    import jaxopt
+
+    a  = prior_bounds[:,0]
+    b  = prior_bounds[:,1]
+    
+    def y_to_x(y):
+        s = jax.nn.sigmoid(y)       # (0,1)
+        return a + (b - a) * s      # (a,b)
+
+    def fun_y(y):
+        return log_posterior(y_to_x(y))
+    # Local Newton solver (uses gradients/Hessians automatically)
+    solver = jaxopt.LBFGS(fun=fun_y, maxiter=200, tol=1e-6)
+
+    # One local run
+    def run_one(x0):
+        result = solver.run(init_params=x0)
+        return result.params, result.state.value
+    
+
+
+    # Vectorized over multiple starts
+    batched_run = jax.vmap(run_one, in_axes=0, out_axes=(0, 0))
+
+    def global_optimize(rng, n_starts=64):
+        rng, subkey = jax.random.split(rng)
+        x0s = jax.random.uniform(subkey, shape=(n_starts, len(prior_bounds)),minval=prior_bounds[:, 0],
+                                                              maxval=prior_bounds[:, 1])
+        
+        xs, vals = batched_run(x0s)  # run all in parallel
+        best_idx = jnp.argmin(vals)
+        return xs[best_idx], vals[best_idx]
+
+    # Run
+    rng = jax.random.PRNGKey(0)
+    xopt, fopt = global_optimize(rng, n_starts=10)
+
+    def x_to_y(x):
+    # avoid division by zero with clip
+        s = (x - a) / (b - a)
+        s = jnp.clip(s, 1e-12, 1 - 1e-12)
+        return jnp.log(s) - jnp.log1p(-s) 
+
+    y_opt = x_to_y(xopt)
+
+    print("Best solution:", y_opt)
+    print("Best value:", fopt)
+    return xopt, fopt

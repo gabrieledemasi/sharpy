@@ -1,5 +1,6 @@
 
 import os
+os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
 #enable jax debugging
 # os.environ["JAX_LOG_COMPILES"] = "1"
@@ -20,20 +21,6 @@ import blackjax
 from functools import partial
 import time 
 import json
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -58,20 +45,20 @@ from jax.scipy.special import logsumexp
 #     logpdf2 = exponent2 + norm_const
 #     return logsumexp(jnp.array([logpdf1, logpdf2]))
 
-def log_likelihood(params):
-    mean = jnp.array([0.0, 0.0])
-    cov  = jnp.array([[1.10, 0.], [0., 0.10]])
-    inv_cov = jnp.linalg.inv(cov)
-    diff = params - mean
-    exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
-    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    return exponent  + norm_const
+# def log_likelihood(params):
+#     mean = jnp.array([0.0, 0.0])
+#     cov  = jnp.array([[1.10, 0.], [0., 0.10]])
+#     inv_cov = jnp.linalg.inv(cov)
+#     diff = params - mean
+#     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
+#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+#     return exponent  + norm_const
 
-def prior(params):
-    return 0. # Uniform prior within bounds, log(1) = 0
+# def prior(params):
+#     return 0. # Uniform prior within bounds, log(1) = 0
 
-def log_posterior(params, beta=1):
-    return log_likelihood(params)*beta + prior(params)
+# def log_posterior(params, beta=1):
+#     return log_likelihood(params)*beta + prior(params)
 
 
 
@@ -94,6 +81,8 @@ detector_settings = {
     }
 
 
+from likelihood import GWNetwork, log_likelihood_det
+
 
 # truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
@@ -107,8 +96,10 @@ detector_settings = {
 
 # log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
+
 # def log_posterior(params, beta=1):
 #     return log_likelihood(params)*beta + prior(params)
+
 
 
 # prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 6.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
@@ -125,19 +116,56 @@ detector_settings = {
 
 
 
-
-
-prior_bounds            = jnp.array([[-5, 5], [-5, 5]])
-boundary_conditions     = jnp.array([0, 0])  # 0: periodic, 1: reflective
-number_of_particles     = 2000
-step_size               = 1e-2
-temperature_schedule    = jnp.logspace(-2, 0, 20)
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
+boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+  
+number_of_particles     = 1000
+step_size               = 1e-1
+temperature_schedule    = jnp.logspace(-2, 0, 10)
 temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
-truth                   = None
+
 
 folder                  = "results"
 label                   = "smc_2d_gaussian"
+
+
+# #####Maximum Likelihood finder #####
+
+# from smc_functions import find_global_minimum_nuts, find_global_minimum_jaxopt
+# number_of_samples_single_chain = 100
+# number_of_parallel_chains      = 10
+# step_size                     = 1e-1 * 3
+
+# samples, max_likelihood_point = find_global_minimum_nuts(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, 
+#                                                 number_of_parallel_chains,  step_size, )
+
+
+# print(max_likelihood_point)
+
+
+# from likelihood import project_waveform
+# projecting_map = jax.vmap(project_waveform, in_axes=(None, 0))
+# waveform_truth = projecting_map(truth, batched_detector)
+# waveform_max   = projecting_map(max_likelihood_point, batched_detector)
+
+
+# import matplotlib.pyplot as plt
+# import numpy as np
+# plt.plot(np.fft.fft(waveform_truth[0]), label = "truth")
+# plt.plot(np.fft.fft(waveform_max[0]),   label = "maxL")
+# plt.legend()
+# plt.savefig("waveform.png")
+# plt.show()
+
+
+
+
+# fig = corner(samples, truths = truth)
+# fig.savefig("test.png")
+# import sys 
+# sys.exit()
+
 
 
 
@@ -151,13 +179,15 @@ start  = time.time()
 
 final_samples, samples_dict = run_smc(log_likelihood, 
                                         prior, 
+
+
                                         prior_bounds, 
                                         boundary_conditions, 
                                         temperature_schedule, 
                                         number_of_particles, 
                                         step_size,   
                                         master_key=jax.random.PRNGKey(0)
-                        )
+                                     )
 
 
 samples = final_samples
