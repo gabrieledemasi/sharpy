@@ -56,9 +56,17 @@ def build_kernel_fn(kernel, log_posterior, step_size):
 
 
 @jax.jit
-def multinomial_resample(key, particles, weights):
+def multinomial_resample(key, particles, weights, ):
     cdf = jnp.cumsum(weights)
     u = jax.random.uniform(key, shape=(len(weights),))
+    idx = jnp.searchsorted(cdf, u)
+    return particles[idx]
+
+
+@jax.jit
+def multinomial_resample_PS(key, particles, weights,):
+    cdf = jnp.cumsum(weights)
+    u = jax.random.uniform(key, shape=(1000),)
     idx = jnp.searchsorted(cdf, u)
     return particles[idx]
 
@@ -171,6 +179,225 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     return samples, samples_dict
 
 
+
+# class Particle:
+#     def __init__(self, position,log_likelihood, beta):
+#         self.position       = position
+#         self.beta           = beta
+#         self.log_likelihood = log_likelihood
+
+# class Step:
+#     def __init__(self, beta, particles, evidence, evidence_error):
+
+#         self.beta                = beta
+#         self.particles           = particles
+#         self.evidence            = evidence
+#         self.evidence_error      = evidence_error
+#         self.number_of_particles = len(particles)
+
+
+    
+#     def get_positions(self):
+#         return np.array([p.position for p in self.particles])
+    
+#     def get_log_likelihoods(self):
+#         return np.array([p.log_likelihood for p in self.particles])
+    
+
+
+        
+from scipy.special import logsumexp
+
+
+
+def compute_persistent_weights(particles,number_of_steps,current_beta  ):
+        
+        
+       
+        ## particle: (position, log_likelihood, beta, log_Z)
+        
+        
+        log_likelihoods     = particles[:,2]
+        betas               = particles[:,3]
+        log_numerator       = log_likelihoods *current_beta
+        
+        
+        evidences           = particles[:,4]
+        beta                = np.unique(betas)
+        print("beta, ", beta)
+        evidence            = np.unique(evidences)
+        print("loglike_shape", log_likelihoods.shape, )
+
+        log_numerator           = log_numerator
+        log_denominator         = np.array([log_likelihoods *beta[i] - evidence[i] for i in range(len(beta))])
+        print("log_denominator_shape" , log_denominator.shape)
+        
+        log_denominator         = np.logaddexp.reduce(log_denominator, ) - np.log(len(beta))
+        print("log_denominator_shape" , log_denominator.shape)
+        log_weights             = log_numerator - log_denominator
+        # log_weights             = np.concatenate(log_weights)
+        log_z                   = np.logaddexp.reduce(log_weights) - np.log(len(log_weights))   
+        #log_weights             = log_weights - np.logaddexp.reduce(log_weights)
+
+
+        # log_piece_to_sum    = log_likelihoods*betas  - evidences
+
+        # print(log_piece_to_sum)
+
+        # print("number_of_steps = {}".format(number_of_steps))   
+        # log_denominator     = -np.log(number_of_steps-1) + logsumexp(log_piece_to_sum, axis=0)
+        # # print(log_denominator)
+        # log_weights         = log_numerator - log_denominator
+        # log_z               = np.logaddexp.reduce(log_weights) - np.log(len(log_weights))
+        # log_weights         = log_weights - np.logaddexp.reduce(log_weights)
+        
+        # betas              = np.unique(particles[:,3])
+        
+        # ## weights corresponding to each beta
+        # filtered_weights   = [log_weights[particles[:,3] == b] for b in betas]
+        # for i, l in enumerate(filtered_weights):
+        #     print(len(l))
+        
+        # # print("filtered_weights = {}".format(filtered_weights)) 
+
+        # #compute eq. 16 in https://arxiv.org/pdf/2407.20722
+        # log_sum_evidence_piece = [logsumexp(weights_beta) - np.log(len(weights_beta)) for weights_beta in filtered_weights]
+        # log_z                  = logsumexp(np.exp(log_sum_evidence_piece)) -  np.log(number_of_steps-1)
+
+        # log_Z                 = logsumexp(log_piece_to_sum) 
+
+        return log_weights, log_z
+
+
+
+
+        
+
+
+
+        
+
+
+        
+
+
+
+
+
+def run_persistent_smc(log_likelihood, 
+                        prior,
+                        prior_bounds,
+                        boundary_conditions,
+                        temperature_schedule, 
+                        number_of_particles, 
+                        step_size,   
+                        master_key):
+    
+        
+    def log_posterior(params, beta=1):
+        return log_likelihood(params)*beta + prior(params)
+    
+    kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+    mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
+    kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
+    compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood)
+    init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
+    mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
+
+    initial_position            = jax.random.uniform(
+                                                    jax.random.PRNGKey(1),
+                                                    shape=(number_of_particles, len(prior_bounds)),
+                                                    minval=prior_bounds[:, 0],
+                                                    maxval=prior_bounds[:, 1]
+                                                    )
+    
+    log_likelihoods             = jax.vmap(log_likelihood,)(initial_position)
+
+    n_steps                     = len(temperature_schedule)
+
+    mutation_keys               = random.split(master_key,(n_steps, number_of_particles))
+    resampling_keys             = random.split(master_key+42, n_steps)
+    beta_prev                   = 0.0
+    number_of_step              = 1
+
+    # print(len(initial_position), len(log_likelihoods), len(np.ones(number_of_particles)*beta_prev), len(np.zeros(number_of_particles)))
+    # print(log_likelihoods.shape)
+    particles                   = np.column_stack((initial_position, log_likelihoods, np.ones(number_of_particles)*beta_prev, np.zeros(number_of_particles)))
+
+    
+    
+    ## particle: (position, log_likelihood, beta, log_Z)
+    for step, beta in enumerate(temperature_schedule):
+        beta = np.array(beta)
+        print("Step: {}, beta = {}".format(step, beta))
+        resampling_key          = resampling_keys[step]
+        mutation_key            = mutation_keys[step]
+        number_of_step         += 1
+        log_weights, logZ                = compute_persistent_weights(particles, number_of_step, beta)
+        
+        # normalized_log_weights          = log_weights - logZ
+        weights                         = np.exp(log_weights)
+        weights                         = weights / np.sum(weights)
+        # ess                             = (np.sum(weights)) ** 2 / np.sum(weights**2)
+        ess                            = 1/np.sum(weights**2) 
+        # print("weights sum = {}".format((weights)))
+        particle_position               = particles[:,:2]
+     
+        
+        resampled_particles             = jax.random.choice(resampling_key, particle_position, (number_of_particles,), p=weights)
+
+        # print("resampled_particles = {}".format(resampled_particles))
+        # print(particles[])
+
+        matrices                        = mass_matrix_fn(resampled_particles, beta)
+        mutated_samples                 = mutation_step_vectorized(resampled_particles, mutation_key, beta, matrices)
+        
+        log_likelihoods                 = jax.vmap(log_likelihood,)(mutated_samples)
+        # print("mutated_samples = {}".format(log_likelihoods.shape))
+        # print(np.ones(number_of_particles)*beta)
+        new_particles                    = np.column_stack((mutated_samples, log_likelihoods, np.ones(number_of_particles)*beta, np.ones(number_of_particles)*logZ))
+
+        particles                        = np.row_stack((particles, new_particles))
+        print("ess = {}".format(ess))
+        print("logZ = {}".format(logZ))
+
+
+    return particles, weights
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+        
+
+    
+
+
+
+
+
+
+    
+
+
+
+
+
+
+    return 
+
+
+
 def compute_evidence(folder, label):
     import json
     result_path = f'{folder}/{label}/result.json'
@@ -181,7 +408,7 @@ def compute_evidence(folder, label):
     
 
     for key in result.keys():
-        if float(key) > -1:
+        if float(key) > 0:
             
             evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
             

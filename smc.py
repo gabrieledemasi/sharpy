@@ -54,6 +54,16 @@ def log_likelihood(params):
     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
     return exponent  + norm_const
 
+
+def log_likelihood(params):
+    mean = jnp.zeros(2)
+    cov  = jnp.eye(2)*1.
+    inv_cov = jnp.linalg.inv(cov)
+    diff = params - mean
+    exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
+    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+    return exponent  + norm_const
+
 def prior(params):
     return 0. # Uniform prior within bounds, log(1) = 0
 
@@ -119,13 +129,15 @@ from likelihood import GWNetwork, log_likelihood_det
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
 # boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
 
-prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
-boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
+# prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
+# boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
+prior_bounds            = jnp.array([[-5., 5.]]*2)
+boundary_conditions     = jnp.array([0]*2)# 0: periodic, 1: reflective
   
 number_of_particles     = 2000
 step_size               = 1e-2
-temperature_schedule    = jnp.logspace(-2, 0, 20)
-temperature_schedule    = temperature_schedule[1:]
+temperature_schedule    = jnp.logspace(-1, 0, 10)
+# temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
 
 
@@ -172,7 +184,7 @@ label                   = "smc_2d_gaussian"
 
 
 
-from smc_functions import run_smc
+from smc_functions import run_smc, run_persistent_smc
 
 
 
@@ -180,20 +192,50 @@ from smc_functions import run_smc
 start  = time.time()
 
 
-final_samples, samples_dict = run_smc(log_likelihood, 
-                                        prior, 
+# final_samples, samples_dict = run_smc(log_likelihood, 
+#                                         prior, 
 
 
-                                        prior_bounds, 
-                                        boundary_conditions, 
-                                        temperature_schedule, 
-                                        number_of_particles, 
-                                        step_size,   
-                                        master_key=jax.random.PRNGKey(0)
-                                     )
+#                                         prior_bounds, 
+#                                         boundary_conditions, 
+#                                         temperature_schedule, 
+#                                         number_of_particles, 
+#                                         step_size,   
+#                                         master_key=jax.random.PRNGKey(0)
+#                                      )
 
 
-samples = final_samples
+
+print("temperature", temperature_schedule)
+particles, weights                   = run_persistent_smc(log_likelihood, 
+                                                prior, 
+                                                prior_bounds, 
+                                                boundary_conditions, 
+                                                temperature_schedule, 
+                                                number_of_particles, 
+                                                step_size,   
+                                                master_key=jax.random.PRNGKey(0),
+                                               
+                                                )
+
+# resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:-2000], (1000,), p=weights)
+
+
+
+
+
+
+# print(particles)
+import numpy as np
+samples = np.array(particles[:,:2])
+from corner import corner
+fig = corner(samples, show_titles=True, title_kwargs={"fontsize": 12},)
+fig.savefig("PS.png")
+
+
+import sys
+sys.exit()
+print(particles.shape)
 
 
 sampling_time = time.time()-start
