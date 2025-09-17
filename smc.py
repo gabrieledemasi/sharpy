@@ -45,19 +45,19 @@ from jax.scipy.special import logsumexp
 #     logpdf2 = exponent2 + norm_const
 #     return logsumexp(jnp.array([logpdf1, logpdf2]))
 
-def log_likelihood(params):
-    mean = jnp.array([0.0, 0.0])
-    cov  = jnp.array([[1.10, 0.], [0., 0.10]])
-    inv_cov = jnp.linalg.inv(cov)
-    diff = params - mean
-    exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
-    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    return exponent  + norm_const
+# def log_likelihood(params):
+#     mean = jnp.array([0.0, 0.0])
+#     cov  = jnp.array([[1.10, 0.], [0., 0.10]])
+#     inv_cov = jnp.linalg.inv(cov)
+#     diff = params - mean
+#     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
+#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+#     return exponent  + norm_const
 
 
 def log_likelihood(params):
-    mean = jnp.zeros(2)
-    cov  = jnp.eye(2)*1.
+    mean = jnp.zeros(10)
+    cov  = jnp.eye(10)*1.
     inv_cov = jnp.linalg.inv(cov)
     diff = params - mean
     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
@@ -131,12 +131,16 @@ from likelihood import GWNetwork, log_likelihood_det
 
 # prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
 # boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
-prior_bounds            = jnp.array([[-5., 5.]]*2)
-boundary_conditions     = jnp.array([0]*2)# 0: periodic, 1: reflective
+
+dimensions              = 10
+prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
+boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
 number_of_particles     = 2000
 step_size               = 1e-2
-temperature_schedule    = jnp.logspace(-1, 0, 10)
+temperature_schedule    = jnp.concatenate((jnp.logspace(-1, 0, 10), jnp.array([1.0])))
+temperature_schedule    =jnp.logspace(-1, 0, 20)
+# temperature_schedule    = [ 0.005,0.005, 0.005,0.005,1, ]
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
 
@@ -206,7 +210,7 @@ start  = time.time()
 
 
 
-print("temperature", temperature_schedule)
+
 particles, weights                   = run_persistent_smc(log_likelihood, 
                                                 prior, 
                                                 prior_bounds, 
@@ -214,11 +218,11 @@ particles, weights                   = run_persistent_smc(log_likelihood,
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(0),
+                                                master_key=jax.random.PRNGKey(3),
                                                
                                                 )
 
-# resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:-2000], (1000,), p=weights)
+resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:-number_of_particles], (10000,), p=weights)
 
 
 
@@ -227,7 +231,7 @@ particles, weights                   = run_persistent_smc(log_likelihood,
 
 # print(particles)
 import numpy as np
-samples = np.array(particles[:,:2])
+samples = np.array(resampled_particles[:,:len(prior_bounds)])
 from corner import corner
 fig = corner(samples, show_titles=True, title_kwargs={"fontsize": 12},)
 fig.savefig("PS.png")
