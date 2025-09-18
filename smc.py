@@ -28,22 +28,22 @@ from jax.scipy.special import logsumexp
  
 
 
-# def log_likelihood(params):
-#     mean1 = jnp.array([-1.0, -1.0])
-#     mean2 = jnp.array([1.0, 1.0])
+def log_likelihood(params):
+    mean1 = jnp.array([-1. for i in range(10)])
+    mean2 = jnp.array([1. for i in range(10)])
     
-#     cov  = jnp.array([[0.01, 0.], [0., 0.01]])
+    cov  = jnp.eye(10)*0.1
 
-#     inv_cov = jnp.linalg.inv(cov)
+    inv_cov = jnp.linalg.inv(cov)
     
-#     diff1 = params - mean1
-#     diff2 = params - mean2
-#     exponent1 = -0.5 * jnp.einsum('...i,ij,...j->...', diff1, inv_cov, diff1)
-#     exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
-#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-#     logpdf1 = exponent1 + norm_const
-#     logpdf2 = exponent2 + norm_const
-#     return logsumexp(jnp.array([logpdf1, logpdf2]))
+    diff1 = params - mean1
+    diff2 = params - mean2
+    exponent1 = -0.5 * jnp.einsum('...i,ij,...j->...', diff1, inv_cov, diff1)
+    exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
+    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+    logpdf1 = exponent1 + norm_const - jnp.log(2)
+    logpdf2 = exponent2 + norm_const - jnp.log(2)
+    return logsumexp(jnp.array([logpdf1, logpdf2]))
 
 # def log_likelihood(params):
 #     mean = jnp.array([0.0, 0.0])
@@ -55,14 +55,14 @@ from jax.scipy.special import logsumexp
 #     return exponent  + norm_const
 
 
-def log_likelihood(params):
-    mean = jnp.zeros(10)
-    cov  = jnp.eye(10)*1.
-    inv_cov = jnp.linalg.inv(cov)
-    diff = params - mean
-    exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
-    norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    return exponent  + norm_const
+# def log_likelihood(params):
+#     mean = jnp.zeros(10)
+#     cov  = jnp.eye(10)*1.
+#     inv_cov = jnp.linalg.inv(cov)
+#     diff = params - mean
+#     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
+#     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
+#     return exponent  + norm_const
 
 def prior(params):
     return 0. # Uniform prior within bounds, log(1) = 0
@@ -137,9 +137,12 @@ prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
 boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
 number_of_particles     = 2000
-step_size               = 1e-2
-temperature_schedule    = jnp.concatenate((jnp.logspace(-1, 0, 10), jnp.array([1.0])))
-temperature_schedule    =jnp.logspace(-1, 0, 20)
+step_size               = 1e-1
+
+
+
+temperature_schedule    = jnp.concatenate((jnp.logspace(-2., 0, 30), jnp.array([1.0])))
+# temperature_schedule    =jnp.logspace(-1, 0, 10)
 # temperature_schedule    = [ 0.005,0.005, 0.005,0.005,1, ]
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        = None
@@ -209,7 +212,11 @@ start  = time.time()
 #                                      )
 
 
+def step_size_fn(dimensions):
+    return 2e-2 * jnp.sqrt(dimensions)
 
+dimensions = prior_bounds.shape[0]
+step_size = step_size_fn(dimensions)
 
 particles, weights                   = run_persistent_smc(log_likelihood, 
                                                 prior, 
@@ -218,11 +225,20 @@ particles, weights                   = run_persistent_smc(log_likelihood,
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(3),
+                                                master_key=jax.random.PRNGKey(5),
                                                
                                                 )
 
-resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:-number_of_particles], (10000,), p=weights)
+
+from smc_functions import compute_persistent_weights
+log_weights, _, _  = compute_persistent_weights(particles, 1, dimensions)
+weights = jnp.exp(log_weights - logsumexp(log_weights))
+
+
+
+
+ess = 1./jnp.sum(weights**2)
+resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (int(ess),), p=weights)
 
 
 

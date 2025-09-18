@@ -272,16 +272,16 @@ def run_persistent_smc(log_likelihood,
                                                     )
 
 
-
+    log_z_variances            = []
     for step, beta in enumerate(temperature_schedule):
         
         beta                            = np.array(beta)
-        print("Step: {},".format(step,))
+        print("Step: {}, ".format(step,))
 
         resampling_key                  = resampling_keys[step]
         mutation_key                    = mutation_keys[step]
       
-        log_weights, logZ               = compute_persistent_weights(particles, beta, dimension)
+        log_weights, logZ, logZerr      = compute_persistent_weights(particles, beta, dimension)
        
 
         
@@ -309,6 +309,9 @@ def run_persistent_smc(log_likelihood,
 
         print("ess = {}".format(ess))
         print("logZ = {}".format(logZ))
+        log_z_variances.append(logZerr)
+        logZerr = np.sqrt(np.sum(np.cumsum(log_z_variances)))
+        print("logZerr = {}".format(logZerr))
 
 
     return particles, weights
@@ -321,7 +324,7 @@ def compute_unique(arr):
     return result
 
 
-def compute_persistent_weights(particles, current_beta, dimension):
+def compute_persistent_weights(particles, current_beta, dimension,):
         
         
         
@@ -343,10 +346,22 @@ def compute_persistent_weights(particles, current_beta, dimension):
         log_weights             = log_numerator - log_denominator
 
         log_z                   = np.logaddexp.reduce(log_weights) - np.log(len(log_weights)) 
+        ##error with bootstrap
+        log_z_for_error         = []
+
+
+        for _ in range(100):
+            indices             = np.random.choice(len(log_weights), len(log_weights))
+            log_weights_boot    = log_weights[indices]
+            log_z_piece         = np.logaddexp.reduce(log_weights_boot) - np.log(len(log_weights_boot))
+            log_z_for_error.append(log_z_piece)
+
+
+        log_z_var                = np.var(np.array(log_z_for_error))
         log_weights             = log_weights - np.logaddexp.reduce(log_weights)
 
 
-        return log_weights, log_z
+        return log_weights, log_z, log_z_var
 
 
 
