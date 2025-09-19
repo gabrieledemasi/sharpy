@@ -55,21 +55,31 @@ def build_kernel_fn(kernel, log_posterior, step_size):
 
 
 
-@jax.jit
-def multinomial_resample(key, particles, weights, ):
-    cdf = jnp.cumsum(weights)
-    u = jax.random.uniform(key, shape=(len(weights),))
-    idx = jnp.searchsorted(cdf, u)
-    return particles[idx]
+# @jax.jit
+# def multinomial_resample(key, particles, weights, ):
+#     cdf = jnp.cumsum(weights)
+#     u = jax.random.uniform(key, shape=(len(weights),))
+#     idx = jnp.searchsorted(cdf, u)
+#     return particles[idx]
 
 
-@jax.jit
-def multinomial_resample_PS(key, particles, weights,):
-    cdf = jnp.cumsum(weights)
-    u = jax.random.uniform(key, shape=(1000),)
-    idx = jnp.searchsorted(cdf, u)
-    return particles[idx]
+# # @jax.jit
+# def multinomial_resample_PS(key, particles, weights,):
+#     cdf = jnp.cumsum(weights)
+#     u = jax.random.uniform(key, shape=(1000),)
+#     idx = jnp.searchsorted(cdf, u)
+#     return particles[idx]
 
+
+
+def multinomial_resample_fn(number_of_particles):
+    @jax.jit
+    def multinomial_resample(key, particles, weights, ):
+        cdf = jnp.cumsum(weights)
+        u = jax.random.uniform(key, shape=(number_of_particles,))
+        idx = jnp.searchsorted(cdf, u)
+        return particles[idx]
+    return multinomial_resample
 
 
 def compute_weight_and_ess_fn(log_likelihood):
@@ -237,6 +247,7 @@ def run_persistent_smc(log_likelihood,
                         step_size,   
                         master_key):
     
+
     dimension = len(prior_bounds)
     def log_posterior(params, beta=1):
         return log_likelihood(params)*beta + prior(params)
@@ -246,6 +257,7 @@ def run_persistent_smc(log_likelihood,
     kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
+    multinomial_resample        = multinomial_resample_fn(number_of_particles)
 
     initial_position            = jax.random.uniform(
                                                     master_key,
@@ -288,13 +300,14 @@ def run_persistent_smc(log_likelihood,
         weights                         = np.exp(log_weights- np.max(log_weights))
         weights                         = weights / np.sum(weights)
         ess                             = 1       / np.sum(weights**2) 
+
         particle_position               = particles[:,:dimension -1+1]
         
         
      
         #remsapling
         
-        resampled_particles             = jax.random.choice(resampling_key, particle_position, (number_of_particles,), p=weights)
+        resampled_particles             = multinomial_resample(resampling_key, particle_position, weights)
        
         #mutation
         matrices                        = mass_matrix_fn(resampled_particles, beta)

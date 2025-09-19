@@ -29,10 +29,11 @@ from jax.scipy.special import logsumexp
 
 
 def log_likelihood(params):
-    mean1 = jnp.array([-1. for i in range(10)])
-    mean2 = jnp.array([1. for i in range(10)])
+    dimensions = 15
+    mean1 = jnp.array([-1. for i in range(dimensions)])
+    mean2 = jnp.array([1. for i in range(dimensions)])
     
-    cov  = jnp.eye(10)*0.1
+    cov  = jnp.eye(dimensions)*0.1
 
     inv_cov = jnp.linalg.inv(cov)
     
@@ -132,12 +133,12 @@ from likelihood import GWNetwork, log_likelihood_det
 # prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
 # boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
 
-dimensions              = 10
+dimensions              = 15
 prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
 boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
 number_of_particles     = 2000
-step_size               = 1e-1
+
 
 
 
@@ -213,7 +214,7 @@ start  = time.time()
 
 
 def step_size_fn(dimensions):
-    return 2e-2 * jnp.sqrt(dimensions)
+    return 1e-2 * jnp.sqrt(dimensions)
 
 dimensions = prior_bounds.shape[0]
 step_size = step_size_fn(dimensions)
@@ -225,7 +226,7 @@ particles, weights                   = run_persistent_smc(log_likelihood,
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(5),
+                                                master_key=jax.random.PRNGKey(1),
                                                
                                                 )
 
