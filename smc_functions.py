@@ -332,7 +332,7 @@ def run_persistent_smc(log_likelihood,
 
 def compute_unique(arr):
 
-    res,ind = np.unique(arr, return_index=True)
+    res,ind = jnp.unique(arr, return_index=True)
     result = res[np.argsort(ind)]
     return result
 
