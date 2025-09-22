@@ -29,7 +29,7 @@ from jax.scipy.special import logsumexp
 
 
 def log_likelihood(params):
-    dimensions = 2
+    dimensions = 30
     mean1 = jnp.array([-1. for i in range(dimensions)])
     mean2 = jnp.array([1. for i in range(dimensions)])
     
@@ -134,7 +134,7 @@ from likelihood import GWNetwork, log_likelihood_det
 # prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
 # boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
 
-dimensions              = 2
+dimensions              = 30
 prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
 boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   

@@ -287,7 +287,7 @@ def run_persistent_smc(log_likelihood,
     log_z_variances            = []
     for step, beta in enumerate(temperature_schedule):
         
-        beta                            = np.array(beta)
+        beta                            = jnp.array(beta)
         print("Step: {}, ".format(step,))
 
         resampling_key                  = resampling_keys[step]
@@ -297,9 +297,9 @@ def run_persistent_smc(log_likelihood,
        
 
         
-        weights                         = np.exp(log_weights- np.max(log_weights))
-        weights                         = weights / np.sum(weights)
-        ess                             = 1       / np.sum(weights**2) 
+        weights                         = jnp.exp(log_weights- jnp.max(log_weights))
+        weights                         = weights / jnp.sum(weights)
+        ess                             = 1       / jnp.sum(weights**2) 
 
         particle_position               = particles[:,:dimension -1+1]
         
@@ -312,18 +312,19 @@ def run_persistent_smc(log_likelihood,
         #mutation
         matrices                        = mass_matrix_fn(resampled_particles, beta)
         mutated_samples                 = mutation_step_vectorized(resampled_particles, mutation_key, beta, matrices)
-        log_likelihoods                 = jax.vmap(log_likelihood,)(mutated_samples)
+        log_likelihoods                 = jax.jit(jax.vmap(log_likelihood,))(mutated_samples)
 
 
 
-        new_particles                   = np.column_stack((mutated_samples, log_likelihoods, np.ones(number_of_particles)*beta, np.ones(number_of_particles)*logZ))
-        particles                       = np.row_stack((particles, new_particles))
+        new_particles                   = jnp.column_stack((mutated_samples, log_likelihoods,jnp.ones(number_of_particles)*beta, jnp.ones(number_of_particles)*logZ))
+        particles                       = jnp.vstack((particles, new_particles))
         
 
         print("ess = {}".format(ess))
         print("logZ = {}".format(logZ))
         log_z_variances.append(logZerr)
-        logZerr = np.sqrt(np.sum(np.cumsum(log_z_variances)))
+        
+        logZerr = jnp.sqrt(np.sum(np.cumsum(log_z_variances)))
         print("logZerr = {}".format(logZerr))
 
 
@@ -347,31 +348,36 @@ def compute_persistent_weights(particles, current_beta, dimension,):
 
         beta                    = compute_unique(betas)
         evidence                = compute_unique(evidences)
-
         
         log_likelihoods         = particles[:,dimension -1 +1]
         log_numerator           = log_likelihoods * current_beta
         log_numerator           = log_numerator
 
-        log_denominator         = np.array([log_likelihoods * beta[i] - evidence[i] for i in range(len(beta))])
-        log_denominator         = np.logaddexp.reduce( log_denominator, axis = 0) - np.log(len(beta))
+        log_denominator         = jnp.array([log_likelihoods * beta[i] - evidence[i] for i in range(len(beta))])
+
+        log_denominator         = jnp.logaddexp.reduce( log_denominator, axis = 0) - jnp.log(len(beta))
 
         log_weights             = log_numerator - log_denominator
 
-        log_z                   = np.logaddexp.reduce(log_weights) - np.log(len(log_weights)) 
+        log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights)) 
         ##error with bootstrap
         log_z_for_error         = []
 
+        def compute_bootstrap_variance(key, log_weights):    
+                def compute_log_z_piece(key):
+                    indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
+                    log_weights_boot    = log_weights[indices]
+                    log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
+                    return log_z_piece
+                keys        = jax.random.split(key, 100)
+                log_zs      = jax.jit(jax.vmap(compute_log_z_piece))(keys)
+                variance    = jnp.var(log_zs)
+                return variance
+        
 
-        for _ in range(100):
-            indices             = np.random.choice(len(log_weights), len(log_weights))
-            log_weights_boot    = log_weights[indices]
-            log_z_piece         = np.logaddexp.reduce(log_weights_boot) - np.log(len(log_weights_boot))
-            log_z_for_error.append(log_z_piece)
 
-
-        log_z_var                = np.var(np.array(log_z_for_error))
-        log_weights             = log_weights - np.logaddexp.reduce(log_weights)
+        log_z_var               = compute_bootstrap_variance(jax.random.PRNGKey(0), log_weights)
+        log_weights             = log_weights - jnp.logaddexp.reduce(log_weights)
 
 
         return log_weights, log_z, log_z_var
