@@ -29,7 +29,7 @@ from jax.scipy.special import logsumexp
 
 
 def log_likelihood(params):
-    dimensions = 15
+    dimensions = 30
     mean1 = jnp.array([-1. for i in range(dimensions)])
     mean2 = jnp.array([1. for i in range(dimensions)])
     
@@ -57,8 +57,9 @@ def log_likelihood(params):
 
 
 # def log_likelihood(params):
-#     mean = jnp.zeros(10)
-#     cov  = jnp.eye(10)*1.
+#     dimension = 50
+#     mean = jnp.zeros(dimension)
+#     cov  = jnp.eye(dimension)*1.
 #     inv_cov = jnp.linalg.inv(cov)
 #     diff = params - mean
 #     exponent = -0.5 * jnp.einsum('...i,ij,...j->...', diff, inv_cov, diff)
@@ -133,16 +134,16 @@ from likelihood import GWNetwork, log_likelihood_det
 # prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
 # boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
 
-dimensions              = 15
+dimensions              = 30
 prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
 boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
-number_of_particles     = 2000
+number_of_particles     = 3000
 
 
 
 
-temperature_schedule    = jnp.concatenate((jnp.logspace(-2., 0, 30), jnp.array([1.0])))
+temperature_schedule    = jnp.concatenate((jnp.logspace(-2, 0, 30), jnp.array([1.0])))
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
 # temperature_schedule    = [ 0.005,0.005, 0.005,0.005,1, ]
 # temperature_schedule    = temperature_schedule[1:]
@@ -226,7 +227,7 @@ particles, weights                   = run_persistent_smc(log_likelihood,
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(1),
+                                                master_key=jax.random.PRNGKey(0),
                                                
                                                 )
 
