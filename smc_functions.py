@@ -289,6 +289,7 @@ def run_persistent_smc(log_likelihood,
         
         beta                            = jnp.array(beta)
         print("Step: {}, ".format(step,))
+        print("Beta: {}, ".format(beta,))
 
         resampling_key                  = resampling_keys[step]
         mutation_key                    = mutation_keys[step]
@@ -297,17 +298,18 @@ def run_persistent_smc(log_likelihood,
        
 
         
-        weights                         = jnp.exp(log_weights- jnp.max(log_weights))
+        weights                         = jnp.exp(log_weights)
         weights                         = weights / jnp.sum(weights)
         ess                             = 1       / jnp.sum(weights**2) 
 
         particle_position               = particles[:,:dimension -1+1]
+
         
         
      
         #remsapling
         
-        resampled_particles             = multinomial_resample(resampling_key, particle_position, weights)
+        resampled_particles             = particle_position[np.random.choice(np.arange(len(particle_position)), len(initial_position), p=weights)]
        
         #mutation
         matrices                        = mass_matrix_fn(resampled_particles, beta)
