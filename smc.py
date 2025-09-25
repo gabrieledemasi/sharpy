@@ -30,8 +30,10 @@ from jax.scipy.special import logsumexp
 
 def log_likelihood(params):
     dimensions = 30
-    mean1 = jnp.array([-1. for _ in range(dimensions)])
-    mean2 = jnp.array([1. for _ in range(dimensions)])
+    # mean1 = jnp.array([-1. for _ in range(dimensions)])
+    # mean2 = jnp.array([1. for _ in range(dimensions)])
+    mean1   = jnp.ones(dimensions) * -2.
+    mean2   = jnp.ones(dimensions) * 2.
     
     cov = jnp.eye(dimensions) * 0.1
     inv_cov = jnp.linalg.inv(cov)

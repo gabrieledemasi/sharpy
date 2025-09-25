@@ -362,8 +362,7 @@ def compute_persistent_weights(particles, current_beta, dimension,):
         log_weights             = log_numerator - log_denominator
 
         log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights)) 
-        ##error with bootstrap
-        log_z_for_error         = []
+        
 
         def compute_bootstrap_variance(key, log_weights):    
                 def compute_log_z_piece(key):
@@ -371,7 +370,7 @@ def compute_persistent_weights(particles, current_beta, dimension,):
                     log_weights_boot    = log_weights[indices]
                     log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
                     return log_z_piece
-                keys        = jax.random.split(key, 100)
+                keys        = jax.random.split(key, 1000)
                 log_zs      = jax.jit(jax.vmap(compute_log_z_piece))(keys)
                 variance    = jnp.var(log_zs)
                 return variance
