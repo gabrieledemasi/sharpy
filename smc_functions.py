@@ -55,12 +55,12 @@ def build_kernel_fn(kernel, log_posterior, step_size):
 
 
 
-# @jax.jit
-# def multinomial_resample(key, particles, weights, ):
-#     cdf = jnp.cumsum(weights)
-#     u = jax.random.uniform(key, shape=(len(weights),))
-#     idx = jnp.searchsorted(cdf, u)
-#     return particles[idx]
+@jax.jit
+def multinomial_resample(key, particles, weights, ):
+    cdf = jnp.cumsum(weights)
+    u = jax.random.uniform(key, shape=(len(weights),))
+    idx = jnp.searchsorted(cdf, u)
+    return particles[idx]
 
 
 # # @jax.jit
@@ -76,7 +76,7 @@ def multinomial_resample_fn(number_of_particles):
     @jax.jit
     def multinomial_resample(key, particles, weights, ):
         cdf = jnp.cumsum(weights)
-        u = jax.random.uniform(key, shape=(number_of_particles,))
+        u   = jax.random.uniform(key, shape=(number_of_particles,))
         idx = jnp.searchsorted(cdf, u)
         return particles[idx]
     return multinomial_resample
@@ -257,7 +257,7 @@ def run_persistent_smc(log_likelihood,
     kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
-    multinomial_resample        = multinomial_resample_fn(number_of_particles)
+    vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
 
     initial_position            = jax.random.uniform(
                                                     master_key,
@@ -277,7 +277,7 @@ def run_persistent_smc(log_likelihood,
     
 
 
-    particles                   = np.column_stack((initial_position,
+    particles                   = jnp.column_stack((initial_position,
                                                     log_likelihoods,
                                                     np.ones(number_of_particles)*beta_prev, 
                                                     np.zeros(number_of_particles)   )
@@ -308,13 +308,14 @@ def run_persistent_smc(log_likelihood,
         
      
         #remsapling
-        
-        resampled_particles             = particle_position[np.random.choice(np.arange(len(particle_position)), len(initial_position), p=weights)]
+        resample_indexes                = (jax.random.choice)(resampling_key, jnp.arange(len(particle_position)), (len(initial_position),), p=weights)
+        resampled_particles             = particle_position[resample_indexes]
+        # resampled_particles             = multinomial_resample(resampling_key, particle_position, weights)
        
         #mutation
         matrices                        = mass_matrix_fn(resampled_particles, beta)
         mutated_samples                 = mutation_step_vectorized(resampled_particles, mutation_key, beta, matrices)
-        log_likelihoods                 = jax.jit(jax.vmap(log_likelihood,))(mutated_samples)
+        log_likelihoods                 = vmapped_likelihood(mutated_samples)
 
 
 
@@ -330,58 +331,62 @@ def run_persistent_smc(log_likelihood,
         print("logZerr = {}".format(logZerr))
 
 
+        
+
+
     return particles, weights
 
 
 def compute_unique(arr):
 
-    res,ind = jnp.unique(arr, return_index=True)
+    res,ind = np.unique(arr, return_index=True)
     result = res[np.argsort(ind)]
     return result
 
 
 def compute_persistent_weights(particles, current_beta, dimension,):
         
-        
-        
+
 
         evidences               = particles[:,dimension -1 +3]
         betas                   = particles[:,dimension -1 +2]    
-
         beta                    = compute_unique(betas)
         evidence                = compute_unique(evidences)
-        
         log_likelihoods         = particles[:,dimension -1 +1]
-        log_numerator           = log_likelihoods * current_beta
-        log_numerator           = log_numerator
-
-        log_denominator         = jnp.array([log_likelihoods * beta[i] - evidence[i] for i in range(len(beta))])
-
-        log_denominator         = jnp.logaddexp.reduce( log_denominator, axis = 0) - jnp.log(len(beta))
-
-        log_weights             = log_numerator - log_denominator
-
-        log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights)) 
         
-
-        def compute_bootstrap_variance(key, log_weights):    
-                def compute_log_z_piece(key):
-                    indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
-                    log_weights_boot    = log_weights[indices]
-                    log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
-                    return log_z_piece
-                keys        = jax.random.split(key, 1000)
-                log_zs      = jax.jit(jax.vmap(compute_log_z_piece))(keys)
-                variance    = jnp.var(log_zs)
-                return variance
+        log_weights, log_z      = compute_log_weights_and_log_z(log_likelihoods, beta, evidence, current_beta)
+           
         
-
-
         log_z_var               = compute_bootstrap_variance(jax.random.PRNGKey(0), log_weights)
+
         log_weights             = log_weights - jnp.logaddexp.reduce(log_weights)
 
 
         return log_weights, log_z, log_z_var
+
+
+
+def compute_bootstrap_variance(key, log_weights):    
+    def compute_log_z_piece(key):
+        indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
+        log_weights_boot    = log_weights[indices]
+        log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
+        return log_z_piece
+    keys        = jax.random.split(key, 100)
+    log_zs      = jax.jit(jax.vmap(compute_log_z_piece))(keys)
+    variance    = jnp.var(log_zs)
+    return variance
+        
+@jax.jit
+def compute_log_weights_and_log_z(likelihoods, beta, evidence, current_beta):
+
+    log_numerator           = likelihoods * current_beta
+    log_denominator         = likelihoods * beta[:, None] - evidence[:, None]
+    log_denominator         = jnp.logaddexp.reduce( log_denominator, axis = 0) - jnp.log(len(beta))
+    log_weights             = log_numerator - log_denominator
+    log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights))
+
+    return log_weights, log_z
 
 
 

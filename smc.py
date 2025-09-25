@@ -29,11 +29,11 @@ from jax.scipy.special import logsumexp
 
 
 def log_likelihood(params):
-    dimensions = 30
+    dimensions = 15
     # mean1 = jnp.array([-1. for _ in range(dimensions)])
     # mean2 = jnp.array([1. for _ in range(dimensions)])
-    mean1   = jnp.ones(dimensions) * -2.
-    mean2   = jnp.ones(dimensions) * 2.
+    mean1   = jnp.ones(dimensions) * -1.
+    mean2   = jnp.ones(dimensions) * 1.
     
     cov = jnp.eye(dimensions) * 0.1
     inv_cov = jnp.linalg.inv(cov)
@@ -45,8 +45,8 @@ def log_likelihood(params):
     exponent2 = -0.5 * jnp.einsum('...i,ij,...j->...', diff2, inv_cov, diff2)
     
     norm_const = -0.5 * jnp.log(jnp.linalg.det(2 * jnp.pi * cov))
-    logpdf1 = exponent1 + norm_const - jnp.log(3)  # log(0.5) = -log(2)
-    logpdf2 = exponent2 + norm_const - jnp.log(3/2)  # log(0.5) = -log(2)
+    logpdf1 = exponent1 + norm_const - jnp.log(2)  # log(0.5) = -log(2)
+    logpdf2 = exponent2 + norm_const - jnp.log(2)  # log(0.5) = -log(2)
     
     # Combine using logsumexp with mixture weights
     return logsumexp(jnp.stack([logpdf1, logpdf2]), axis=0) 
@@ -139,16 +139,16 @@ from likelihood import GWNetwork, log_likelihood_det
 # prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
 # boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
 
-dimensions              = 30
+dimensions              = 15
 prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
 boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
-number_of_particles     = 2000
+number_of_particles     = 1000
 
 
 
 
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]), jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 40),))
 # temperature_schedule    = ( jnp.logspace(-2, 0, 30))
 
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
@@ -242,13 +242,10 @@ particles, weights                   = run_persistent_smc(log_likelihood,
 from smc_functions import compute_persistent_weights
 log_weights, _, _   = compute_persistent_weights(particles, 1, dimensions)
 weights             = jnp.exp(log_weights - logsumexp(log_weights))
-
-
-
-
 ess = 1./jnp.sum(weights**2)
+
 print("ESS: ", ess)
-resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (len(particles),),  p=weights)
+resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (int(ess),),  p=weights)
 
 
 
