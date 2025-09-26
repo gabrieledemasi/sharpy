@@ -39,13 +39,13 @@ class GWDetector:
                  psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
                  simulation         = False,
                  psd_method         = 'welch',
-                 T                  = 4.0,
+                 T                  = 2.0,
                  starttime          = 1126259462.4-3,
                  trigtime           = 1126259462.4,
                  sampling_rate      = 2048,
                  flow               = 20,
-                 fhigh              = 1024,
-                 zero_noise         = True,
+                 fhigh              = 512,
+                 zero_noise         = False,
                  calibration        = None,
                  download_data      = 0,
                  datalen_download   = 64,
@@ -467,8 +467,8 @@ def template(params, frequency_array):
     mc                      = params[6]
     q                       = params[7]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
-    chi1                    = 0.0 #params[9] # Dimensionless spin
-    chi2                    = 0.0 #params[10]
+    chi1                    = params[9] # Dimensionless spin
+    chi2                    = params[10]
     tc                      = 0.0 # Time of coalescence in seconds
     phic                    = params[4] # Time of coalescence
     dist_mpc                = jnp.exp(params[2]) # Distance to source in Mpc

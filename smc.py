@@ -20,8 +20,8 @@ jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_
 
 import jax
 import jax.numpy as jnp
-# jax.config.update("jax_enable_x64", False)  # Enable 64-bit precision
-jax.config.update("jax_enable_x64", True) 
+jax.config.update("jax_enable_x64", False)  # Enable 64-bit precision
+# jax.config.update("jax_enable_x64", True) 
 import matplotlib.pyplot as plt
 from functools import partial 
 from jax import random, lax
@@ -102,6 +102,13 @@ detector_settings = {
             "channel": None,
           
         },
+                "V1": {
+            "psd_file":psd, 
+            "data_file": None,
+            "channel": None,
+          
+        },
+
 
     }
 
@@ -109,7 +116,7 @@ detector_settings = {
 from likelihood import GWNetwork, log_likelihood_det
 
 
-truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/3, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+truth =  jnp.array([3.0, 0.0, 7.5, jnp.pi/3, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, 0.1, -0.1])
 
 from likelihood import GWNetwork, log_likelihood_det
 gw_network = GWNetwork(detector_settings,
@@ -127,7 +134,7 @@ def log_posterior(params, beta=1):
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
 
 # parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
@@ -142,7 +149,7 @@ prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0.,
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+boundary_conditions     = jnp.array([1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0])# 0: periodic, 1: reflective
 
 
   
@@ -151,8 +158,8 @@ number_of_particles     = 3000
 
 
 
-# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-3, 0, 25),))
-temperature_schedule    = ( jnp.logspace(-3, 0, 30))
+# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-3, 0, 20),))
+temperature_schedule    = ( jnp.logspace(-3, 0, 20))
 
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
 
@@ -229,7 +236,7 @@ start  = time.time()
 
 # dimensions = prior_bounds.shape[0]
 # step_size = step_size_fn(dimensions)
-step_size   = 2e-1
+step_size   = 5e-2
 dimensions  =  prior_bounds.shape[0]
 
 particles, weights                   = run_persistent_smc(log_likelihood, 
@@ -239,7 +246,7 @@ particles, weights                   = run_persistent_smc(log_likelihood,
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(2),
+                                                master_key=jax.random.PRNGKey(0),
                                                
                                                 )
 
@@ -250,7 +257,7 @@ weights             = jnp.exp(log_weights - logsumexp(log_weights))
 ess                 = 1./jnp.sum(weights**2)
 
 print("ESS: ", ess)
-resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (int(ess),),  p=weights)
+resampled_particles = jax.random.choice(jax.random.PRNGKey(0), particles[:], (int(ess),),  p=weights)
 
 
 
