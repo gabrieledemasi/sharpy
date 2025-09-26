@@ -1,9 +1,17 @@
 
 import os
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
+# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
 #enable jax debugging
-# os.environ["JAX_LOG_COMPILES"] = "1"
+os.environ["JAX_LOG_COMPILES"] = "1"
+import jax
+
+# This sets the cache directory globally
+jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
+jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
+
 
 
 #uncomment these line if you want to run on cpu
@@ -77,49 +85,49 @@ def prior(params):
 # def log_posterior(params, beta=1):
 #     return log_likelihood(params)*beta + prior(params)
 
+psd = "/leonardo/home/userexternal/gdemasi0/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
 
 
 detector_settings = {
         "H1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "psd_file": psd, 
             "data_file": None,
             "channel": None,
+            
+            
         },
         "L1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "psd_file":psd, 
             "data_file": None,
             "channel": None,
+          
         },
-        "V1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
-            "data_file": None,
-            "channel": None,
-        },
+
     }
 
 
 from likelihood import GWNetwork, log_likelihood_det
 
 
-# truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/3, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
-# from likelihood import GWNetwork, log_likelihood_det
-# gw_network = GWNetwork(detector_settings,
-#                        injection_parameters=truth,
+from likelihood import GWNetwork, log_likelihood_det
+gw_network = GWNetwork(detector_settings,
+                       injection_parameters=truth,
     
-#                        )
+                       )
 
-# batched_detector = gw_network.batched_detector
+batched_detector = gw_network.batched_detector
 
-# log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
-
-
-# def log_posterior(params, beta=1):
-#     return log_likelihood(params)*beta + prior(params)
+log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
+def log_posterior(params, beta=1):
+    return log_likelihood(params)*beta + prior(params)
 
-# prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 6.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
+
+
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
 
 # parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
@@ -134,22 +142,17 @@ from likelihood import GWNetwork, log_likelihood_det
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-# boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
 
-# prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
-# boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
 
-dimensions              = 15
-prior_bounds            = jnp.array([[-5., 5.]]*dimensions)
-boundary_conditions     = jnp.array([1]*dimensions)# 0: periodic, 1: reflective
   
-number_of_particles     = 1000
+number_of_particles     = 3000
 
 
 
 
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 40),))
-# temperature_schedule    = ( jnp.logspace(-2, 0, 30))
+# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-3, 0, 25),))
+temperature_schedule    = ( jnp.logspace(-3, 0, 30))
 
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
 
@@ -158,7 +161,7 @@ parameters_names        = None
 
 
 folder                  = "results"
-label                   = "smc_2d_gaussian"
+label                   = "BBH_PS"
 
 
 # #####Maximum Likelihood finder #####
@@ -221,11 +224,13 @@ start  = time.time()
 #                                      )
 
 
-def step_size_fn(dimensions):
-    return 1e-2 * jnp.sqrt(dimensions)
+# def step_size_fn(dimensions):
+#     return 1e-2 * jnp.sqrt(dimensions)
 
-dimensions = prior_bounds.shape[0]
-step_size = step_size_fn(dimensions)
+# dimensions = prior_bounds.shape[0]
+# step_size = step_size_fn(dimensions)
+step_size   = 2e-1
+dimensions  =  prior_bounds.shape[0]
 
 particles, weights                   = run_persistent_smc(log_likelihood, 
                                                 prior, 
@@ -242,7 +247,7 @@ particles, weights                   = run_persistent_smc(log_likelihood,
 from smc_functions import compute_persistent_weights
 log_weights, _, _   = compute_persistent_weights(particles, 1, dimensions)
 weights             = jnp.exp(log_weights - logsumexp(log_weights))
-ess = 1./jnp.sum(weights**2)
+ess                 = 1./jnp.sum(weights**2)
 
 print("ESS: ", ess)
 resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (int(ess),),  p=weights)
@@ -256,19 +261,22 @@ resampled_particles = jax.random.choice(jax.random.PRNGKey(1), particles[:], (in
 import numpy as np
 samples = np.array(resampled_particles[:,:len(prior_bounds)])
 from corner import corner
-fig = corner(samples, show_titles=True, title_kwargs={"fontsize": 12},)
-fig.savefig("PS.png")
+fig = corner(samples, 
+             show_titles=True,
+             truths     = truth,
+             title_kwargs={"fontsize": 12},)
+fig.savefig(f"{folder}/{label}.png")
 
 
-import sys
-sys.exit()
+
 print(particles.shape)
 
 
 sampling_time = time.time()-start
 print("time = {}".format(sampling_time))
 
-
+import sys
+sys.exit()
 
 ####PLOTTING###
 

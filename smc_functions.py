@@ -267,7 +267,7 @@ def run_persistent_smc(log_likelihood,
                                                     )
     
 
-    log_likelihoods             = jax.vmap(log_likelihood,)(initial_position)
+    log_likelihoods             = vmapped_likelihood(initial_position)
 
     n_steps                     = len(temperature_schedule)
 
@@ -366,18 +366,20 @@ def compute_persistent_weights(particles, current_beta, dimension,):
 
 
 
-def compute_bootstrap_variance(key, log_weights):    
-    def compute_log_z_piece(key):
+
+def compute_log_z_piece(key, log_weights):
         indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
         log_weights_boot    = log_weights[indices]
         log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
         return log_z_piece
+
+def compute_bootstrap_variance(key, log_weights):    
     keys        = jax.random.split(key, 100)
-    log_zs      = jax.jit(jax.vmap(compute_log_z_piece))(keys)
+    log_zs      = jax.vmap(compute_log_z_piece,in_axes = (0, None)) (keys, log_weights)
     variance    = jnp.var(log_zs)
     return variance
         
-@jax.jit
+
 def compute_log_weights_and_log_z(likelihoods, beta, evidence, current_beta):
 
     log_numerator           = likelihoods * current_beta
