@@ -1,9 +1,9 @@
 
 import os
-os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
+# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
-#enable jax debugging
-# os.environ["JAX_LOG_COMPILES"] = "1"
+# enable jax debugging
+os.environ["JAX_LOG_COMPILES"] = "1"
 
 
 #uncomment these line if you want to run on cpu
@@ -60,21 +60,21 @@ def prior(params):
 # def log_posterior(params, beta=1):
 #     return log_likelihood(params)*beta + prior(params)
 
-
+psd_file = "/leonardo/home/userexternal/gdemasi0/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
 
 detector_settings = {
         "H1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "psd_file": psd_file,
             "data_file": None,
             "channel": None,
         },
         "L1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "psd_file": psd_file,
             "data_file": None,
             "channel": None,
         },
         "V1": {
-            "psd_file": "LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat",
+            "psd_file": psd_file,
             "data_file": None,
             "channel": None,
         },
@@ -84,48 +84,39 @@ detector_settings = {
 from likelihood import GWNetwork, log_likelihood_det
 
 
-# truth =  jnp.array([3.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+truth =  jnp.array([3.0, 0.10, 7.5, jnp.pi/3, jnp.pi/2, jnp.pi/2, 30.0, 0.7, 0.0])
 
-# from likelihood import GWNetwork, log_likelihood_det
-# gw_network = GWNetwork(detector_settings,
-#                        injection_parameters=truth,
+from likelihood import GWNetwork, log_likelihood_det
+gw_network = GWNetwork(detector_settings,
+                       injection_parameters=truth,
     
-#                        )
+                       )
 
-# batched_detector = gw_network.batched_detector
+batched_detector = gw_network.batched_detector
 
-# log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
-
-
-# def log_posterior(params, beta=1):
-#     return log_likelihood(params)*beta + prior(params)
+log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
-
-# prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 6.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
-
-# parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
+def log_posterior(params, beta=1):
+    return log_likelihood(params)*beta + prior(params)
 
 
-# print("Test log likelihood: ", log_likelihood(parameters))
 
-# import sys
-# sys.exit()
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1]])
+
 
 
 
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-# boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: periodic, 1: reflective
+boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0])# 0: reflective, 1: circular
 
-prior_bounds            = jnp.array([[-5., 5.], [-5., 5.]])
-boundary_conditions     = jnp.array([0, 0])# 0: periodic, 1: reflective
-  
+
 number_of_particles     = 2000
-step_size               = 1e-2
-temperature_schedule    = jnp.logspace(-2, 0, 20)
-temperature_schedule    = temperature_schedule[1:]
+step_size               = 2e-1
+temperature_schedule    = jnp.logspace(-3, 0, 30)
+
 parameters_names        = None
 
 
@@ -189,7 +180,7 @@ final_samples, samples_dict = run_smc(log_likelihood,
                                         temperature_schedule, 
                                         number_of_particles, 
                                         step_size,   
-                                        master_key=jax.random.PRNGKey(0)
+                                        master_key=jax.random.PRNGKey(1)
                                      )
 
 
@@ -212,14 +203,14 @@ from corner import corner
 import numpy as np
 np.savetxt(os.path.join(outdir,"samples.txt"),np.array(samples),)
 
-np.savetxt(os.path.join(outdir,"sampling_time.txt"),np.array([sampling_time]))
-with open(f'{folder}/{label}/result.json', 'w') as fp:
-    json.dump(samples_dict, fp)
+# np.savetxt(os.path.join(outdir,"sampling_time.txt"),np.array([sampling_time]))
+# with open(f'{folder}/{label}/result.json', 'w') as fp:
+#     json.dump(samples_dict, fp)
 
-from smc_functions import compute_evidence
-z, dz = compute_evidence(folder, label)
+# from smc_functions import compute_evidence
+# z, dz = compute_evidence(folder, label)
 
-print(f"log_evidnence  = {z} +- {dz}")
+# print(f"log_evidnence  = {z} +- {dz}")
 
 # if truth is not None:
 #     np.savetxt(os.path.join(outdir,"truth.txt"),np.array(truth),)
@@ -231,7 +222,7 @@ print(f"log_evidnence  = {z} +- {dz}")
 # 
 
 fig = corner(np.array(samples), 
-                # truths=truth,  
+                truths=truth,  
                 show_titles=True, 
                 title_kwargs={"fontsize": 12}, 
                 labels = parameters_names)

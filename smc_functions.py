@@ -92,6 +92,7 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
 
         # Resampling
         samples         = multinomial_resample(resampling_key, samples, weights)
+        # samples           = jax.random.choice(resampling_key, samples, (len(samples), ), weights)
         # Mutation
         matrices        = mass_matrix_fn(samples, beta)
         

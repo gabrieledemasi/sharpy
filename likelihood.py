@@ -39,7 +39,7 @@ class GWDetector:
                  psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
                  simulation         = False,
                  psd_method         = 'welch',
-                 T                  = 8.0,
+                 T                  = 4.0,
                  starttime          = 1126259462.4-3,
                  trigtime           = 1126259462.4,
                  sampling_rate      = 2048,
@@ -245,10 +245,6 @@ class GWNetwork:
 
 
 
-
-    
-    
-
     def detector_constructor(self):
        
         detector_names = self.detectors_settings.keys()
@@ -278,7 +274,8 @@ class GWNetwork:
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary.Frequency
-    h_plus, h_cross = template(params, f)
+    # h_plus, h_cross = template(params, f)
+    h_plus, h_cross = TaylorF2(params, f)
 
     latitude = detector_dictionary.latitude
     longitude = detector_dictionary.longitude
