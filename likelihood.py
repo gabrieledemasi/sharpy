@@ -36,19 +36,18 @@ class GWDetector:
     def __init__(self,
                  name,
                  datafile           = None,
-                 psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
+                 psd_file           = 'None',
                  simulation         = False,
                  psd_method         = 'welch',
                  T                  = 2.0,
-                 starttime          = 1126259462.4-3,
                  trigtime           = 1126259462.4,
-                 sampling_rate      = 2048,
+                 sampling_rate      = 1024,
                  flow               = 20,
                  fhigh              = 512,
-                 zero_noise         = False,
+                 zero_noise         = True,
                  calibration        = None,
                  download_data      = 0,
-                 datalen_download   = 64,
+                 datalen_download   = 32,
                  channel            = '',
                  gwpy_tag           = None):
         
@@ -83,7 +82,7 @@ class GWDetector:
         self.zero_noise       = zero_noise
         self.calibration      = calibration
         self.T                = T
-        self.Epoch            = jnp.float64(starttime -(self.T-1))
+        self.Epoch            = jnp.float64(self.trigtime -(self.T-1))
         self.download_data    = download_data
         self.datalen_download = datalen_download
         self.channel          = channel
@@ -297,6 +296,7 @@ def project_waveform(params, detector_dictionary):
     tc  = np.float64(1126259462.4) + params[8]
 
     timedelay       = TimeDelayFromEarthCenter(latitude, longitude, elevation, ra, dec, tc)
+    # jax.debug.print("Time delay: {}", timedelay)
     timeshift       = timedelay
     timeshift       = timeshift + (params[8] + (detector_dictionary.T - 1) )
     
@@ -346,6 +346,7 @@ def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, de
     
     fplus = jnp.sin(z_)*(ampl11*c2pol + ampl12*s2pol)
     fcross = jnp.sin(z_)*(ampl12*c2pol - ampl11*s2pol)
+    # jax.debug.print("Antenna patterns: fplus {}, fcross {}", fplus, fcross)
 
     return fplus, fcross
 
@@ -481,7 +482,7 @@ def template(params, frequency_array):
     # hp, hc       = IMRPhenomD.gen_IMRPhenomD_hphc(frequency_array, theta_ripple, frequency_array[0]) 
     hp, hc            = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
 
-
+    # jax.debug.print("Max hp: {}, Max hc: {}", jnp.max(jnp.abs(hp)), jnp.max(jnp.abs(hc)))
     return hp, hc 
 
 

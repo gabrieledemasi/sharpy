@@ -334,7 +334,7 @@ def run_persistent_smc(log_likelihood,
         
 
 
-    return particles, weights
+    return particles, weights, logZ, logZerr
 
 
 def compute_unique(arr):
@@ -363,6 +363,27 @@ def compute_persistent_weights(particles, current_beta, dimension,):
 
 
         return log_weights, log_z, log_z_var
+
+def draw_iid_posterior_samples(particles, dimension):
+
+    evidences               = particles[:,dimension -1 +3]
+    betas                   = particles[:,dimension -1 +2]    
+    beta                    = compute_unique(betas)
+    evidence                = compute_unique(evidences)
+    log_likelihoods         = particles[:,dimension -1 +1]
+    log_posterior_primed        = log_likelihoods * beta[:, None] - evidence[:, None]
+    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) #- jnp.log(len(beta))
+    # print(log_likelihoods, log_posterior_primed)
+    #implement rejection sampling 
+    samples = particles[:,: dimension -1+1]
+    # print(samples.shape)
+    M = jnp.max( log_likelihoods - log_posterior_primed) 
+    print(len(log_posterior_primed))
+    u = jax.random.uniform(jax.random.PRNGKey(5), shape=(len(log_posterior_primed),))
+    accepted =  log_likelihoods - log_posterior_primed - M > jnp.log(u)
+
+    samples = samples[accepted]
+    return samples
 
 
 

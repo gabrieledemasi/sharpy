@@ -3,7 +3,7 @@ import os
 # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
 #enable jax debugging
-os.environ["JAX_LOG_COMPILES"] = "1"
+# os.environ["JAX_LOG_COMPILES"] = "1"
 import jax
 
 # This sets the cache directory globally
@@ -90,24 +90,21 @@ psd = "/leonardo/home/userexternal/gdemasi0/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DE
 
 detector_settings = {
         "H1": {
-            "psd_file": psd, 
-            "data_file": None,
-            "channel": None,
+            "psd_file"  : None, 
+            "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/H-H1_GWOSC_4KHZ_R1-1126259447-32.txt',
+            "channel"   : 'GWOSC',
             
             
         },
         "L1": {
-            "psd_file":psd, 
-            "data_file": None,
-            "channel": None,
+            "psd_file"  : None, 
+            "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/L-L1_GWOSC_4KHZ_R1-1126259447-32.txt',
+            "channel"   :'GWOSC',
           
         },
-                "V1": {
-            "psd_file":psd, 
-            "data_file": None,
-            "channel": None,
+            
           
-        },
+  
 
 
     }
@@ -116,11 +113,11 @@ detector_settings = {
 from likelihood import GWNetwork, log_likelihood_det
 
 
-truth =  jnp.array([3.0, 0.0, 7.5, jnp.pi/3, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, 0.1, -0.1])
 
 from likelihood import GWNetwork, log_likelihood_det
 gw_network = GWNetwork(detector_settings,
-                       injection_parameters=truth,
+                       
+                    #injection_parameters=truth,
     
                        )
 
@@ -129,12 +126,17 @@ batched_detector = gw_network.batched_detector
 log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
+truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, 0.0, 0.0])
+print(log_likelihood(truth))
+
+
+
 def log_posterior(params, beta=1):
     return log_likelihood(params)*beta + prior(params)
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
+prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
 
 # parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
 
@@ -149,7 +151,7 @@ prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3.9, 8.7], [0.,
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-boundary_conditions     = jnp.array([1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0])# 0: periodic, 1: reflective
+boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])# 0: periodic, 1: reflective
 
 
   
@@ -158,54 +160,23 @@ number_of_particles     = 3000
 
 
 
-# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-3, 0, 20),))
-temperature_schedule    = ( jnp.logspace(-3, 0, 20))
-
+# temperature_schedule    = jnp.concatenate(jnp.logspace(-2, 0, 20),)
+# temperature_schedule    = jnp.logspace(-2, 0, 30)
+# temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-3]), jnp.array([1e-3]), jnp.array([5e-2]), jnp.logspace(-2, 0, 30),))
+temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 20),))
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
 
 # temperature_schedule    = temperature_schedule[1:]
-parameters_names        = None
+parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
 
-folder                  = "results"
-label                   = "BBH_PS"
-
-
-# #####Maximum Likelihood finder #####
-
-# from smc_functions import find_global_minimum_nuts, find_global_minimum_jaxopt
-# number_of_samples_single_chain = 100
-# number_of_parallel_chains      = 10
-# step_size                     = 1e-1 * 3
-
-# samples, max_likelihood_point = find_global_minimum_nuts(log_posterior, prior_bounds, boundary_conditions,  number_of_samples_single_chain, 
-#                                                 number_of_parallel_chains,  step_size, )
-
-
-# print(max_likelihood_point)
-
-
-# from likelihood import project_waveform
-# projecting_map = jax.vmap(project_waveform, in_axes=(None, 0))
-# waveform_truth = projecting_map(truth, batched_detector)
-# waveform_max   = projecting_map(max_likelihood_point, batched_detector)
-
-
-# import matplotlib.pyplot as plt
-# import numpy as np
-# plt.plot(np.fft.fft(waveform_truth[0]), label = "truth")
-# plt.plot(np.fft.fft(waveform_max[0]),   label = "maxL")
-# plt.legend()
-# plt.savefig("waveform.png")
-# plt.show()
+folder                  = "GW150914_9_RJ"
+label                   = "run1 "
+if not os.path.exists(folder):
+    os.makedirs(folder)
 
 
 
-
-# fig = corner(samples, truths = truth)
-# fig.savefig("test.png")
-# import sys 
-# sys.exit()
 
 
 
@@ -213,66 +184,56 @@ label                   = "BBH_PS"
 from smc_functions import run_smc, run_persistent_smc
 
 
-
-
 start  = time.time()
 
 
-# final_samples, samples_dict = run_smc(log_likelihood, 
-#                                         prior, 
 
 
-#                                         prior_bounds, 
-#                                         boundary_conditions, 
-#                                         temperature_schedule, 
-#                                         number_of_particles, 
-#                                         step_size,   
-#                                         master_key=jax.random.PRNGKey(0)
-#                                      )
+def step_size_fn(dimensions):
+    return 2e-1/jnp.sqrt(dimensions)
 
+dimensions = prior_bounds.shape[0]
+# 
+step_size = 1e-1
 
-# def step_size_fn(dimensions):
-#     return 1e-2 * jnp.sqrt(dimensions)
-
-# dimensions = prior_bounds.shape[0]
-# step_size = step_size_fn(dimensions)
-step_size   = 5e-2
-dimensions  =  prior_bounds.shape[0]
-
-particles, weights                   = run_persistent_smc(log_likelihood, 
+particles, weights, logZ, logZerr          = run_persistent_smc(log_likelihood, 
                                                 prior, 
                                                 prior_bounds, 
                                                 boundary_conditions, 
                                                 temperature_schedule, 
                                                 number_of_particles, 
                                                 step_size,   
-                                                master_key=jax.random.PRNGKey(0),
+                                                master_key=jax.random.PRNGKey(1),
                                                
                                                 )
 
 
-from smc_functions import compute_persistent_weights
-log_weights, _, _   = compute_persistent_weights(particles, 1, dimensions)
-weights             = jnp.exp(log_weights - logsumexp(log_weights))
-ess                 = 1./jnp.sum(weights**2)
-
-print("ESS: ", ess)
-resampled_particles = jax.random.choice(jax.random.PRNGKey(0), particles[:], (int(ess),),  p=weights)
 
 
+from smc_functions import draw_iid_posterior_samples
 
+samples = draw_iid_posterior_samples(particles, dimensions)
+print("the number of samples after rejection sampling is:", len(samples))
 
 
 
 # print(particles)
 import numpy as np
-samples = np.array(resampled_particles[:,:len(prior_bounds)])
+# samples = np.array(resampled_particles[:,:len(prior_bounds)])
+
+np.savetxt(os.path.join(folder,"posterior_samples.txt"),np.array(samples),)
+
+
+
+
 from corner import corner
-fig = corner(samples, 
-             show_titles=True,
-             truths     = truth,
-             title_kwargs={"fontsize": 12},)
-fig.savefig(f"{folder}/{label}.png")
+fig = corner(np.array(samples), 
+             show_titles    =True,
+            #  truths     = truth,
+            labels          = parameters_names, 
+             title_kwargs   = {"fontsize": 12},)
+
+fig.savefig(f"{folder}/{label}_corner.png")
 
 
 
@@ -282,47 +243,8 @@ print(particles.shape)
 sampling_time = time.time()-start
 print("time = {}".format(sampling_time))
 
-import sys
-sys.exit()
+np.savetxt(os.path.join(folder,"sampling_time.txt"),np.array([sampling_time]))
+np.savetxt(os.path.join(folder,"evidence.txt"),np.array([logZ, logZerr])[np.newaxis], fmt = '%3f')
 
-####PLOTTING###
-
-outdir = os.path.join(folder, label)
-
-if not os.path.exists(outdir):
-    os.makedirs(outdir)
-
-from corner import corner
-import numpy as np
-np.savetxt(os.path.join(outdir,"samples.txt"),np.array(samples),)
-
-np.savetxt(os.path.join(outdir,"sampling_time.txt"),np.array([sampling_time]))
-with open(f'{folder}/{label}/result.json', 'w') as fp:
-    json.dump(samples_dict, fp)
-
-from smc_functions import compute_evidence
-z, dz = compute_evidence(folder, label)
-
-print(f"log_evidnence  = {z} +- {dz}")
-
-# if truth is not None:
-#     np.savetxt(os.path.join(outdir,"truth.txt"),np.array(truth),)
-
-# np.savetxt(os.path.join(outdir, "snr.txt"),  np.array([snr]) )
-
-
-
-# 
-
-fig = corner(np.array(samples), 
-                # truths=truth,  
-                show_titles=True, 
-                title_kwargs={"fontsize": 12}, 
-                labels = parameters_names)
-
-
-fig.savefig(os.path.join(outdir, f"{label}_corner.png"))
-    
-
-
-
+import shutil 
+shutil.copy(__file__, os.path.join(folder, "pe_script_copy" + '.py'))
