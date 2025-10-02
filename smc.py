@@ -93,8 +93,9 @@ gw_network = GWNetwork(detector_settings,
                        )
 
 batched_detector = gw_network.batched_detector
+detectors_list    = gw_network.detectors
 
-log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
+log_likelihood = partial(log_likelihood_det, detector_list=detectors_list   )
 
 
 def log_posterior(params, beta=1):

@@ -35,7 +35,7 @@ def fetch_data(ifo, tstart, tend, channel=None, path=None, verbose=0, tag=None):
     # If not, then see if it is on GWOSC.
     if channel=='GWOSC':
         #When downloading public data, fetch them with the highest possible sampling rate, then down-sample internally, if required. This is needed to avoid incompatibilities between GWOSC down-sampling and the internal one. The actual function used to down-sample is the same, but differences in things like the length of data stretch can affect filtering at the borders and hence the Bayes Factors.
-        tseries = TimeSeries.fetch_open_data(ifo, tstart, tend, sample_rate = 16384, verbose=verbose, cache=True, tag=u"{0}".format(tag))
+        tseries = TimeSeries.fetch_open_data(ifo, tstart, tend, sample_rate = 16384, verbose=verbose, cache=True, )
     else:
         # Read from authenticated data.
         if channel is None:
@@ -260,7 +260,7 @@ def load_data(fname,
         T         = float(datalen_download)
         starttime = int(trigtime)-(T/2.)
         endtime   = int(trigtime)+(T/2.)
-        tseries   = fetch_data(ifo, starttime, endtime, channel=channel, path=None, verbose=2, tag=gwpy_tag)
+        tseries   = fetch_data(ifo, starttime, endtime, channel=channel, path=None, verbose=2, )
         rawstrain = np.array(tseries.data)
         Nfull     = len(rawstrain)
         dt        = tseries.dt.to_value()

@@ -3,20 +3,21 @@ M_sun = const.M_sun.value
 G = const.G.value
 c = const.c.value
 pc = const.pc.value
-import jax.numpy as jnp
-import jax.random as random
-import numpy as np
+# import jax.numpy as jnp
+
+import numpy as npffre
+
 from functools import partial
-import jax
+
 from utils import GreenwichMeanSiderealTime
 from utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses
-jax.config.update("jax_enable_x64", True) 
+
 from noise import load_data, generate_data
 from ripplegw.waveforms import IMRPhenomD
 from ripplegw import ms_to_Mc_eta
 import flax
 # from memory_profiler import profile
-
+import numpy as np
 import sys
 
 
@@ -39,15 +40,14 @@ class GWDetector:
                  psd_file           = 'LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat',
                  simulation         = False,
                  psd_method         = 'welch',
-                 T                  = 4.0,
-                 starttime          = 1126259462.4-3,
+                 T                  = 2.0,
                  trigtime           = 1126259462.4,
                  sampling_rate      = 2048,
                  flow               = 20,
                  fhigh              = 512,
                  zero_noise         = True,
                  calibration        = None,
-                 download_data      = 0,
+                 download_data      = 1,
                  datalen_download   = 64,
                  channel            = '',
                  gwpy_tag           = None):
@@ -83,7 +83,7 @@ class GWDetector:
         self.zero_noise       = zero_noise
         self.calibration      = calibration
         self.T                = T
-        self.Epoch            = jnp.float64(starttime -(self.T-1))
+        self.Epoch            = np.float64(self.trigtime -(self.T-1))
         self.download_data    = download_data
         self.datalen_download = datalen_download
         self.channel          = channel
@@ -137,7 +137,7 @@ class GWDetector:
         
         # noise-weighted inner product weighting factor
         self.sigmasq              = self.PowerSpectralDensity * self.dt * self.dt
-        self.TwoDeltaTOverN       = 2.0*self.dt/jnp.float64(self.segment_length)
+        self.TwoDeltaTOverN       = 2.0*self.dt/np.float64(self.segment_length)
 
         self.latitude   = self.available_detectors[name][0]
         self.longitude  = self.available_detectors[name][1]
@@ -146,55 +146,55 @@ class GWDetector:
         self.elevation  = self.available_detectors[name][4] 
 
 
-from flax import struct
-@struct.dataclass(frozen = False)
-class Detector:
-    Frequency       :      jnp.ndarray
-    FrequencySeries :      jnp.ndarray
-    PowerSpectralDensity: jnp.ndarray
-    sigmasq: jnp.ndarray
-    latitude: float
-    longitude: float    
-    elevation: float
-    gamma: float
-    zeta: float
-    TwoDeltaTOverN: float
-    T: float
+# from flax import struct
+# @struct.dataclass(frozen = False)
+# class Detector:
+#     Frequency       :      jnp.ndarray
+#     FrequencySeries :      jnp.ndarray
+#     PowerSpectralDensity: jnp.ndarray
+#     sigmasq: jnp.ndarray
+#     latitude: float
+#     longitude: float    
+#     elevation: float
+#     gamma: float
+#     zeta: float
+#     TwoDeltaTOverN: float
+#     T: float
 
 
-def stack_detectors(detectors_list):
+# def stack_detectors(detectors_list):
     
-    return Detector(
-        Frequency           = jnp.stack([d["Frequency"] for d in detectors_list]),
-        FrequencySeries     = jnp.stack([d["FrequencySeries"] for d in detectors_list]),
-        TwoDeltaTOverN      = jnp.stack([d["TwoDeltaTOverN"] for d in detectors_list]),
-        sigmasq             = jnp.stack([d["sigmasq"] for d in detectors_list]),
-        latitude            = jnp.array([d["latitude"] for d in detectors_list]),
-        longitude           = jnp.array([d["longitude"] for d in detectors_list]),
-        elevation           = jnp.array([d["elevation"] for d in detectors_list]),
-        gamma               = jnp.array([d["gamma"] for d in detectors_list]),
-        zeta                = jnp.array([d["zeta"] for d in detectors_list]),
-        PowerSpectralDensity= jnp.stack([d["PowerSpectralDensity"] for d in detectors_list]),
-        T                   = jnp.array([d["T"] for d in detectors_list]),
-    )
+#     return Detector(
+#         Frequency           = jnp.stack([d["Frequency"] for d in detectors_list]),
+#         FrequencySeries     = jnp.stack([d["FrequencySeries"] for d in detectors_list]),
+#         TwoDeltaTOverN      = jnp.stack([d["TwoDeltaTOverN"] for d in detectors_list]),
+#         sigmasq             = jnp.stack([d["sigmasq"] for d in detectors_list]),
+#         latitude            = jnp.array([d["latitude"] for d in detectors_list]),
+#         longitude           = jnp.array([d["longitude"] for d in detectors_list]),
+#         elevation           = jnp.array([d["elevation"] for d in detectors_list]),
+#         gamma               = jnp.array([d["gamma"] for d in detectors_list]),
+#         zeta                = jnp.array([d["zeta"] for d in detectors_list]),
+#         PowerSpectralDensity= jnp.stack([d["PowerSpectralDensity"] for d in detectors_list]),
+#         T                   = jnp.array([d["T"] for d in detectors_list]),
+#     )
 
 
 
-def inject_signal_in_detector(params, detector_dictionary):
-        """
-        Inject a signal into the detector noise.
-        """
-        h           = project_waveform(params, detector_dictionary)
+# def inject_signal_in_detector(params, detector_dictionary):
+#         """
+#         Inject a signal into the detector noise.
+#         """
+#         h           = project_waveform(params, detector_dictionary)
         
-        # add to the detector noise
-        detector_dictionary.FrequencySeries += h
+#         # add to the detector noise
+#         detector_dictionary.FrequencySeries += h
 
-        df          = detector_dictionary.Frequency[1] - detector_dictionary.Frequency[0]
+#         df          = detector_dictionary.Frequency[1] - detector_dictionary.Frequency[0]
 
-        # signal-to-noise ratio
-        SNR         = jnp.sqrt(4.0*df*jnp.sum(jnp.conj(h)*h/detector_dictionary.PowerSpectralDensity).real)
+#         # signal-to-noise ratio
+#         SNR         = jnp.sqrt(4.0*df*jnp.sum(jnp.conj(h)*h/detector_dictionary.PowerSpectralDensity).real)
         
-        return detector_dictionary, SNR
+#         return detector_dictionary, SNR
 
 
 
@@ -229,7 +229,7 @@ class GWNetwork:
         
         self.detectors        = self.detector_constructor()
         
-        self.batched_detector = self.construct_batched_detectors()
+        # self.batched_detector = self.construct_batched_detectors()
 
         if self.injection_parameters is not None:
             print("Injecting signal with parameters: ", self.injection_parameters)
@@ -237,13 +237,17 @@ class GWNetwork:
             print("Injected signal with SNR: ", self.snr)
 
 
-    def inject_signal_in_noise(self, ):
-        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None, 0))(self.injection_parameters, self.batched_detector)
-        total_snr = jnp.sqrt(jnp.sum(snr**2))
-        return detector_dictionaries, total_snr
+    # def inject_signal_in_noise(self, ):
+    #     detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None, 0))(self.injection_parameters, self.batched_detector)
+    #     total_snr = jnp.sqrt(jnp.sum(snr**2))
+    #     return detector_dictionaries, total_snr
     
 
 
+
+
+    
+    
 
     def detector_constructor(self):
        
@@ -255,33 +259,84 @@ class GWNetwork:
         
         return self.detectors
     
-    def construct_batched_detectors(self):
-        detectors_list  = [{} for i in self.detectors]
-        for i, dict in enumerate(detectors_list):
-            for key in self.list_of_detectors_necessary_parameters:
+    # def construct_batched_detectors(self):
+    #     detectors_list  = [{} for i in self.detectors]
+    #     for i, dict in enumerate(detectors_list):
+    #         for key in self.list_of_detectors_necessary_parameters:
                 
-                dict[key] = self.detectors[i][key]
+    #             dict[key] = self.detectors[i][key]
                 
         
-        self.batched_detector = stack_detectors(detectors_list)
-        return self.batched_detector
+    #     self.batched_detector = stack_detectors(detectors_list)
+    #     return self.batched_detector
     
+import lal
+def createLALDict(phase_order, amp_order, lambda1, lambda2):
 
+    lal_pars    = lal.CreateDict()
+    phase_order = int(phase_order)
+    amp_order   = int(amp_order)
+
+    ls.SimInspiralWaveformParamsInsertPNPhaseOrder(lal_pars,phase_order)
+    ls.SimInspiralWaveformParamsInsertPNAmplitudeOrder(lal_pars,amp_order)
+    ls.SimInspiralWaveformParamsInsertTidalLambda1(lal_pars, lambda1)
+    ls.SimInspiralWaveformParamsInsertTidalLambda2(lal_pars, lambda2)
+
+    return lal_pars
+
+import lalsimulation as ls
+def LAL_template(params, frequency_array):
+
+    approx = ls.IMRPhenomD
+    m1, m2        = McQ2Masses(params[6], params[7])
+    m1 = float(m1*M_sun)
+    m2 = float(m2*M_sun)
+    m1 = float(m1)
+    m2 = float(m2)
+
+     # Dimensionless spin
+    phase_order = -1
+    amp_order = -1
+    lambda1 = 0.0
+    lambda2 = 0.0
+    lal_pars = createLALDict(phase_order, amp_order, lambda1, lambda2)
+
+    s1z = float(params[9])
+    s2z = float(params[10])
+    dist = float(1E6*ls.lal.PC_SI * np.exp(params[2])) # Distance to source in m
+    iota = float(params[3]) # Inclination Angle
+    phase = float(params[4]) # Phase at coalescence
+    df = frequency_array[1] - frequency_array[0]
+    wf_fmin = frequency_array[0]
+    fmax = frequency_array[-1]
+    fref = 20.0
+
+    hplus, hcross = ls.SimInspiralChooseFDWaveform(
+                    m1, m2, 0., 0.,  s1z, 0., 0., s2z,
+                    dist, iota, phase, 0, 0, 0, df, wf_fmin, fmax, fref,
+                    lal_pars, approx)
+
+
+    return hplus.data.data[int(wf_fmin/df):], hcross.data.data[int(wf_fmin/df):]
 
 
 
 
 def project_waveform(params, detector_dictionary):
     
-    f = detector_dictionary.Frequency
-    # h_plus, h_cross = template(params, f)
-    h_plus, h_cross = TaylorF2(params, f)
+    f = detector_dictionary["Frequency"]
+    h_plus, h_cross = LAL_template(params, f)
 
-    latitude = detector_dictionary.latitude
-    longitude = detector_dictionary.longitude
-    gamma     = detector_dictionary.gamma
-    zeta      = detector_dictionary.zeta
-    elevation = detector_dictionary.elevation
+
+    # h_plus, h_cross   = TaylorF2(params, f)
+
+
+
+    latitude  = detector_dictionary["latitude"]
+    longitude = detector_dictionary["longitude"]
+    gamma     = detector_dictionary["gamma"]
+    zeta      = detector_dictionary["zeta"]
+    elevation = detector_dictionary["elevation"]
 
     
     fplus, fcross   = antenna_pattern_functions(params, latitude, longitude, gamma, zeta)
@@ -293,12 +348,12 @@ def project_waveform(params, detector_dictionary):
 
     timedelay       = TimeDelayFromEarthCenter(latitude, longitude, elevation, ra, dec, tc)
     timeshift       = timedelay
-    timeshift       = timeshift + (params[8] + (detector_dictionary.T - 1) )
+    timeshift       = timeshift + (params[8] + (detector_dictionary["T"] - 1) )
     
     shift           = 2.0*np.pi*f*timeshift
 
   
-    h = (fplus*h_plus + fcross*h_cross)*(jnp.cos(shift)-1j*jnp.sin(shift))
+    h = (fplus*h_plus + fcross*h_cross)*(np.cos(shift)-1j*np.sin(shift))
     return h
 
 #@partial(jax.jit, static_argnums=(1,2,3,4))
@@ -329,18 +384,18 @@ def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, de
     pol = params[5]
     
     tc  = np.float64(1126259462.4) + params[8]
-    lat = jnp.radians(det_latitute)
-    g_ = jnp.radians(det_gamma)
-    z_ = jnp.radians(det_zeta)
-    gmst = jnp.mod(GreenwichMeanSiderealTime(tc), 2*jnp.pi)
-    lst = gmst + jnp.radians(det_longitude)
+    lat = np.radians(det_latitute)
+    g_ = np.radians(det_gamma)
+    z_ = np.radians(det_zeta)
+    gmst = np.mod(GreenwichMeanSiderealTime(tc), 2*np.pi)
+    lst = gmst + np.radians(det_longitude)
     ampl11, ampl12 = _ab_factors(g_, lat, ra, dec, lst)
 
-    c2pol = jnp.cos(2*pol)
-    s2pol = jnp.sin(2*pol)
+    c2pol = np.cos(2*pol)
+    s2pol = np.sin(2*pol)
     
-    fplus = jnp.sin(z_)*(ampl11*c2pol + ampl12*s2pol)
-    fcross = jnp.sin(z_)*(ampl12*c2pol - ampl11*s2pol)
+    fplus = np.sin(z_)*(ampl11*c2pol + ampl12*s2pol)
+    fcross = np.sin(z_)*(ampl12*c2pol - ampl11*s2pol)
 
     return fplus, fcross
 
@@ -363,22 +418,22 @@ def _ab_factors(g_, lat, ra, dec, lst):
     :return: tuple of float or np.ndarray
         relative amplitudes of hplus and hcross.
     """
-    s2g = jnp.sin(2*g_)
-    c2g = jnp.cos(2*g_)
-    cdec  = jnp.cos(dec)
-    sdec  = jnp.sin(dec)
-    c2dec = jnp.cos(2*dec)
-    s2dec = jnp.sin(2*dec)
-    clat  = jnp.cos(lat)
-    slat  = jnp.sin(lat)
-    c2lat = jnp.cos(2*lat)
-    s2lat = jnp.sin(2*lat)
+    s2g = np.sin(2*g_)
+    c2g = np.cos(2*g_)
+    cdec  = np.cos(dec)
+    sdec  = np.sin(dec)
+    c2dec = np.cos(2*dec)
+    s2dec = np.sin(2*dec)
+    clat  = np.cos(lat)
+    slat  = np.sin(lat)
+    c2lat = np.cos(2*lat)
+    s2lat = np.sin(2*lat)
     ra_lst = ra - lst
-    cra_lst = jnp.cos(ra_lst)
-    sra_lst = jnp.sin(ra_lst)
+    cra_lst = np.cos(ra_lst)
+    sra_lst = np.sin(ra_lst)
     two_ra_lst = 2*ra_lst
-    c2ra_lst = jnp.cos(two_ra_lst)
-    s2ra_lst = jnp.sin(two_ra_lst)
+    c2ra_lst = np.cos(two_ra_lst)
+    s2ra_lst = np.sin(two_ra_lst)
     
     a_ = (1/16)*s2g*(3-c2lat)*(3-c2dec)*c2ra_lst-\
          (1/4)*c2g*slat*(3-c2dec)*s2ra_lst+\
@@ -398,7 +453,7 @@ def TaylorF2(params, frequency_array):
 
     Mc, q, phi_c, logdistance, cos_iota= params[6], params[7], params[4], params[2], params[3]
 
-    distance = jnp.exp(logdistance)
+    distance = np.exp(logdistance)
     
     nu = q / ((1 + q) ** 2)
 
@@ -409,14 +464,14 @@ def TaylorF2(params, frequency_array):
     f_lso = frequency_array[-1] / 2
 
     # Precompute terms
-    pi_M = G * jnp.pi * M
-    v = jnp.power(pi_M * frequency_array, 1/3) / c
-    v_lso = jnp.power(pi_M * f_lso, 1/3) / c
-    gamma = jnp.euler_gamma
+    pi_M = G * np.pi * M
+    v = np.power(pi_M * frequency_array, 1/3) / c
+    v_lso = np.power(pi_M * f_lso, 1/3) / c
+    gamma = np.euler_gamma
 
     # Compute amplitude
-    amp = jnp.power(jnp.pi, -2/3) * jnp.sqrt(5/24) * jnp.power(G * Mc / c**3, 5/6) \
-          * jnp.power(frequency_array, -7/6) * (c / r)
+    amp = np.power(np.pi, -2/3) * np.sqrt(5/24) * np.power(G * Mc / c**3, 5/6) \
+          * np.power(frequency_array, -7/6) * (c / r)
 
     # Compute phase terms (factorized and precomputed where possible)
     v2 = v**2
@@ -425,28 +480,28 @@ def TaylorF2(params, frequency_array):
     v5 = v**5
     v6 = v**6
     v7 = v**7
-    log_v = jnp.log(v)
+    log_v = np.log(v)
 
     phi_plus = (3 / (128 * nu * v**5)) * (1 +
         v2 * (20/9) * (743/336 + nu * 11/4) -
-        v3 * (16 * jnp.pi) +
+        v3 * (16 * np.pi) +
         v4 * (10 * (3058673/1016064 + nu * 5429/1008 + (nu**2) * 617/144)) +
-        v5 * jnp.pi * (38645/756 - nu * 65/9) * (1 + 3 * log_v) +
-        v6 * (11583231236531/4694215680 - jnp.pi**2 * 640/3 - 6848 * gamma/21 - 6848/21 * log_v +
-              nu * (-15737765635/3048192 + 2255 * (jnp.pi**2) / 12) + nu**2 * 76055/1728 - nu**3 * 127825/1296) +
-        v7 * jnp.pi * (77096675/254016 + nu * 378515/1512 - nu**2 * 74045/756)
+        v5 * np.pi * (38645/756 - nu * 65/9) * (1 + 3 * log_v) +
+        v6 * (11583231236531/4694215680 - np.pi**2 * 640/3 - 6848 * gamma/21 - 6848/21 * log_v +
+              nu * (-15737765635/3048192 + 2255 * (np.pi**2) / 12) + nu**2 * 76055/1728 - nu**3 * 127825/1296) +
+        v7 * np.pi * (77096675/254016 + nu * 378515/1512 - nu**2 * 74045/756)
     )
 
-    phi_plus += jnp.pi - jnp.pi / 4
-    phi_cross = phi_plus + jnp.pi / 2
+    phi_plus += np.pi - np.pi / 4
+    phi_cross = phi_plus + np.pi / 2
 
     # Compute phase factor
-    phase_factor = jnp.exp(-1j * phi_c)
-    exp_phi_plus = jnp.exp(1j * phi_plus)
-    exp_phi_cross = jnp.exp(1j * phi_cross)
+    phase_factor = np.exp(-1j * phi_c)
+    exp_phi_plus = np.exp(1j * phi_plus)
+    exp_phi_cross = np.exp(1j * phi_cross)
 
     # Compute strain polarizations
-    #  cos_iota = jnp.cos(iota)
+    #  cos_iota = np.cos(iota)
     cos_iota_sq = cos_iota**2
 
     h_plus = phase_factor * amp * ((1 + cos_iota_sq) / 2) * exp_phi_plus
@@ -462,19 +517,19 @@ def template(params, frequency_array):
     mc                      = params[6]
     q                       = params[7]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
-    chi1                    = 0.0 #params[9] # Dimensionless spin
-    chi2                    = 0.0 #params[10]
+    chi1                    = params[9] # Dimensionless spin
+    chi2                    = params[10]
     tc                      = 0.0 # Time of coalescence in seconds
     phic                    = params[4] # Time of coalescence
-    dist_mpc                = jnp.exp(params[2]) # Distance to source in Mpc
+    dist_mpc                = np.exp(params[2]) # Distance to source in Mpc
     inclination             = params[3] # Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
-    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+    Mc, eta           = ms_to_Mc_eta(np.array([m1_msun, m2_msun]))
 
-    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
-    # hp, hc       = IMRPhenomD.gen_IMRPhenomD_hphc(frequency_array, theta_ripple, frequency_array[0]) 
-    hp, hc            = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+    theta_ripple      = np.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
+    hp, hc              = IMRPhenomD.gen_IMRPhenomD_hphc(frequency_array, theta_ripple, frequency_array[0]) 
+    # hp, hc            = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(np.array([frequency_array]), theta_ripple, 20)
 
 
     return hp, hc 
@@ -495,14 +550,15 @@ def template(params, frequency_array):
 
 def log_likelihood_det(params, detector_list):
 
-    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
+    # log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
+    log_likelihoods = np.array([single_detector_log_likelihood(params, det) for det in detector_list])
 
-    # Then use jnp.sum
-    return jnp.sum(log_likelihoods)
+    # Then use np.sum
+    return np.sum(log_likelihoods)
 
 
 def single_detector_log_likelihood(params, detector_dictionary):
 
     h = project_waveform(params, detector_dictionary)
-    residuals = detector_dictionary.FrequencySeries - h
-    return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real
+    residuals = detector_dictionary["FrequencySeries"] - h
+    return -detector_dictionary["TwoDeltaTOverN"] * np.vdot(residuals / np.sqrt(detector_dictionary["sigmasq"]), residuals / np.sqrt(detector_dictionary["sigmasq"])).real

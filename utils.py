@@ -1,8 +1,9 @@
 
-import jax
-import jax.numpy as jnp
+# import jax
+# import jax.numpy as jnp
 
 
+import numpy as np
 
 #MASS MATRIX utils
 
@@ -80,8 +81,7 @@ def compute_mass_matrix(logdensity, q):
 
 
 
-import jax.numpy as np
-import jax
+
 from math import pi, floor
 
 
@@ -126,18 +126,18 @@ def _GPS2JD(gpstime):
     dot2gps = 29224.0
     dot2utc = 2415020.5
     
-    # Determine leap seconds
-    nleap = jax.lax.cond(
-        gpstime < 820108814,  # Condition (must be a JAX expression)
-        lambda _: 32,  # If True
-        lambda _:     jax.lax.cond(
-                                    np.logical_and(gpstime < 914803215,gpstime >820108814),  # Condition (must be a JAX expression)
-                                    lambda _: 33,  # If True
-                                    lambda _: 34,   # If False
-                                    operand=None),
-   # If False
-        operand=None
-    )
+#     # Determine leap seconds
+#     nleap = jax.lax.cond(
+#         gpstime < 820108814,  # Condition (must be a JAX expression)
+#         lambda _: 32,  # If True
+#         lambda _:     jax.lax.cond(
+#                                     np.logical_and(gpstime < 914803215,gpstime >820108814),  # Condition (must be a JAX expression)
+#                                     lambda _: 33,  # If True
+#                                     lambda _: 34,   # If False
+#                                     operand=None),
+#    # If False
+#         operand=None
+#     )
 #    nleap = jax.lax.cond(
 #        820108814 <= gpstime < 914803215,  # Condition (must be a JAX expression)
 #        lambda _: 33,  # If True
@@ -145,12 +145,12 @@ def _GPS2JD(gpstime):
 #        operand=None
 #    )
 
-#    if gpstime < 820108814:
-#        nleap = 32
-#    elif 820108814 <= gpstime < 914803215:
-#        nleap = 33
-#    else:
-#        nleap = 34
+    if gpstime < 820108814:
+        nleap = 32
+    elif 820108814 <= gpstime < 914803215:
+        nleap = 33
+    else:
+        nleap = 34
 
     dot = dot2gps + (gpstime - (nleap - 19)) / 86400.0
     utc = dot + dot2utc
@@ -200,7 +200,7 @@ def TimeDelayFromEarthCenter( lat, lon, h,  ra,dec,GPS_time,):
 
 
 
-@jax.jit
+# @jax.jit
 def McQ2Masses(mc, q):
     """
     | Converts from chirp mass and mass ratio :math:`\\mathcal{M}_c, q` to component masses :math:`m_1, m_2`,
@@ -220,7 +220,7 @@ def McQ2Masses(mc, q):
     m2     = factor * np.power(q, +2.0/5.0);
     return m1, m2
 
-@jax.jit
+# @jax.jit
 def Masses2McQ(m1, m2):
     """
     | Converts from omponent masses :math:`m_1, m_2` (with :math:`m_1 \geq m_2` ) to chirp mass and mass ratio :math:`\\mathcal{M}_c, q` 
