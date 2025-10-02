@@ -8,7 +8,7 @@ import blackjax
 import numpy as np 
 
 
-
+from netket.jax import vmap_chunked
 
 
 def build_mass_matrix_fn(log_posterior):
@@ -16,7 +16,7 @@ def build_mass_matrix_fn(log_posterior):
         logdensity = lambda x: log_posterior(x, beta)
         
         return compute_mass_matrix(logdensity, pos)
-    return jax.jit(jax.vmap(single, in_axes=(0, None)))
+    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 2000, axis_0_is_sharded=False)) 
 
 
 
@@ -48,9 +48,8 @@ def build_kernel_fn(kernel, log_posterior, step_size):
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
 
     # JIT-compile the batched kernel function
-    batched_kernel = jax.jit(jax.vmap(_kernel, in_axes=(0, 0, 0, 0), out_axes=(0, 0)))
+    batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 6000, axis_0_is_sharded=False))
     return batched_kernel
-
 
 
 

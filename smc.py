@@ -155,22 +155,22 @@ boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])# 0: perio
 
 
   
-number_of_particles     = 3000
+number_of_particles     = 6000
 
 
 
 
 # temperature_schedule    = jnp.concatenate(jnp.logspace(-2, 0, 20),)
-# temperature_schedule    = jnp.logspace(-2, 0, 30)
-# temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-3]), jnp.array([1e-3]), jnp.array([5e-2]), jnp.logspace(-2, 0, 30),))
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 20),))
+# temperature_schedule    = jnp.logspace(-3, 0, 30)
+temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
 
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
 
-folder                  = "GW150914_9_RJ"
+folder                  = "GW150914_12"
 label                   = "run1 "
 if not os.path.exists(folder):
     os.makedirs(folder)
@@ -194,7 +194,9 @@ def step_size_fn(dimensions):
 
 dimensions = prior_bounds.shape[0]
 # 
-step_size = 1e-1
+# step_size = 0.2
+# step_size = step_size_fn(dimensions)
+step_size = 0.1
 
 particles, weights, logZ, logZerr          = run_persistent_smc(log_likelihood, 
                                                 prior, 
