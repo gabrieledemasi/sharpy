@@ -16,7 +16,7 @@ def build_mass_matrix_fn(log_posterior):
         logdensity = lambda x: log_posterior(x, beta)
         
         return compute_mass_matrix(logdensity, pos)
-    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 2000, axis_0_is_sharded=False)) 
+    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 1000, axis_0_is_sharded=False)) 
 
 
 
@@ -48,7 +48,7 @@ def build_kernel_fn(kernel, log_posterior, step_size):
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
 
     # JIT-compile the batched kernel function
-    batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 6000, axis_0_is_sharded=False))
+    batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
     return batched_kernel
 
 
@@ -446,33 +446,33 @@ def compute_log_weights_and_log_z(likelihoods, beta, evidence, current_beta):
 
 
 
-def compute_evidence(folder, label):
-    import json
-    result_path = f'{folder}/{label}/result.json'
-    with open(result_path, 'r') as f:
-        result = json.load(f)
-    evidence = 1.0
+def compute_evidence(dict):
+ 
+    # with open(result_path, 'r') as f:
+    #     result = json.load(f)
+    result = dict
+    log_evidence = 0.0
     errors    = []
     
 
     for key in result.keys():
-        if float(key) > 0:
+        if float(key) > -1:
             
-            evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+            # evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+            log_evidence_piece = logsumexp(np.log(result[key]['weights'])) - np.log(len(result[key]['weights']))
             
-            
-            evidence      *= evidence_piece
+            log_evidence      += log_evidence_piece
 
             ### compute evidence with bootstraping
-            boot_weights = np.array(result[key]['weights'])
-            evidences = [np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)]
+            log_boot_weights = np.log(result[key]['weights'])
+            # evidences = [logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) -len(log_boot_weights) for _ in range(1000)]
 
-            dlogz_piece = np.var((np.log([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])))
+            dlogz_piece = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) -len(log_boot_weights) for _ in range(100)])
             errors.append(dlogz_piece)
             
     
-    logz, dlogz  = np.log(evidence), np.sqrt(np.sum(np.cumsum(errors)))
-    np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
+    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
+    # np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
 
     return logz, dlogz
 

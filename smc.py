@@ -126,7 +126,7 @@ batched_detector = gw_network.batched_detector
 log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
-truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, 0.0, 0.0])
+truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -1, 1.])
 print(log_likelihood(truth))
 
 
@@ -151,26 +151,27 @@ prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0.,
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])# 0: periodic, 1: reflective
-
+boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
 
   
-number_of_particles     = 6000
+number_of_particles     = 9000
 
 
 
 
 # temperature_schedule    = jnp.concatenate(jnp.logspace(-2, 0, 20),)
-# temperature_schedule    = jnp.logspace(-3, 0, 30)
-temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
-# temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([5e-5]), jnp.array([1e-4]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+temperature_schedule    = jnp.logspace(-3, 0, 20)
+# temperature_schedule    = jnp.logspace(-2, 0, 20)
+# temperature_schedule    = jnp.concatenate( jnp.logspace(-2, 0, 30),)
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
+temperature_schedule    = jnp.concatenate((jnp.array([1e-5]), jnp.array([5e-5]),jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+
 
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
 
-folder                  = "GW150914_12"
+folder                  = "GW150914_21"
 label                   = "run1 "
 if not os.path.exists(folder):
     os.makedirs(folder)
@@ -196,26 +197,38 @@ dimensions = prior_bounds.shape[0]
 # 
 # step_size = 0.2
 # step_size = step_size_fn(dimensions)
-step_size = 0.1
+step_size = 0.2
 
-particles, weights, logZ, logZerr          = run_persistent_smc(log_likelihood, 
-                                                prior, 
-                                                prior_bounds, 
-                                                boundary_conditions, 
-                                                temperature_schedule, 
-                                                number_of_particles, 
-                                                step_size,   
-                                                master_key=jax.random.PRNGKey(1),
+# particles, weights, logZ, logZerr          = run_persistent_smc(log_likelihood, 
+#                                                 prior, 
+#                                                 prior_bounds, 
+#                                                 boundary_conditions, 
+#                                                 temperature_schedule, 
+#                                                 number_of_particles, 
+#                                                 step_size,   
+#                                                 master_key=jax.random.PRNGKey(2),
                                                
+#                                                 )
+
+
+
+
+# from smc_functions import draw_iid_posterior_samples
+
+# samples = draw_iid_posterior_samples(particles, dimensions)
+# print("the number of samples after rejection sampling is:", len(samples))
+
+
+samples , samples_dict = run_smc(log_likelihood,
+                                                prior,
+                                                prior_bounds,
+                                                boundary_conditions,
+                                                temperature_schedule,
+                                                number_of_particles,
+                                                step_size,
+                                                master_key=jax.random.PRNGKey(2),
+                                             
                                                 )
-
-
-
-
-from smc_functions import draw_iid_posterior_samples
-
-samples = draw_iid_posterior_samples(particles, dimensions)
-print("the number of samples after rejection sampling is:", len(samples))
 
 
 
@@ -227,6 +240,8 @@ np.savetxt(os.path.join(folder,"posterior_samples.txt"),np.array(samples),)
 
 
 
+from smc_functions import compute_evidence
+logZ, logZerr = compute_evidence( samples_dict)
 
 from corner import corner
 fig = corner(np.array(samples), 
@@ -239,7 +254,7 @@ fig.savefig(f"{folder}/{label}_corner.png")
 
 
 
-print(particles.shape)
+# print(particles.shape)
 
 
 sampling_time = time.time()-start
