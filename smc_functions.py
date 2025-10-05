@@ -108,7 +108,8 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
         weights, weights_nonorm,  ess    = compute_weight_and_ess(samples, beta, beta_prev)
 
         # Resampling
-        samples         = multinomial_resample(resampling_key, samples, weights)
+        # samples         = multinomial_resample(resampling_key, samples, weights)
+        samples         = jax.random.choice(resampling_key, samples, (len(samples),), p=weights)
         # Mutation
         matrices        = mass_matrix_fn(samples, beta)
         
@@ -143,7 +144,7 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
-
+    vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
     samples_dict                 = {}        
 
     initial_position = jax.random.uniform(
@@ -177,9 +178,15 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
         mutation_key            = mutation_keys[step]
 
         samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
+        if jnp.isnan(ess):
+            print("ESS is NaN, stopping SMC.")
+            break
         samples_dict[step]["samples"]           = np.array(samples).tolist()
         samples_dict[step]["weights"]           = np.array(weights).tolist()
         samples_dict[step]["ess"]               = float(ess)
+        samples_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
+        samples_dict[step]['beta']              = float(beta)
+
 
         print("ess = {}".format(ess))
         
@@ -383,6 +390,56 @@ def draw_iid_posterior_samples(particles, dimension):
 
     samples = samples[accepted]
     return samples
+
+
+def draw_iid_samples(dict):
+    result = dict 
+    samples         = []
+    log_likelihoods = []
+    betas           = []
+    log_evidences       = []
+    log_evidence = 0.0
+    for key in result.keys():
+    
+        samples += list(result[key]['samples'])
+        
+        log_likelihoods+= list((result[key]['log_likelihoods']))
+        betas.append(result[key]['beta'])
+         # evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+        log_evidence_piece = logsumexp(np.log(result[key]['weights'])) - np.log(len(result[key]['weights']))
+            
+        log_evidence      += log_evidence_piece
+        log_evidences.append(log_evidence)
+        
+
+    print(log_evidences)
+    betas = np.array(betas)
+    log_evidences= np.array(log_evidences)
+    samples = np.array(samples)
+
+   
+   
+    log_likelihoods = np.array(log_likelihoods)
+    print("length samples: ", samples.shape)
+    print("shape log_likelihoods: ", log_likelihoods.shape)
+    print(log_likelihoods)
+    print("length log_likelihoods: ", log_likelihoods.shape)
+    print("betas shape: ", betas.shape)
+
+    log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
+    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
+
+    print("shape log_posterior_primed: ", log_posterior_primed.shape)
+
+    M = np.max( log_likelihoods - log_posterior_primed)  
+    print(len(log_posterior_primed))
+    u = np.random.uniform( size = len(log_posterior_primed))
+    print("u shape: ", u.shape)
+    accepted =  +log_likelihoods - log_posterior_primed - M > np.log(u)
+    samples = samples[accepted]
+    return samples
+    
+
 
 
 

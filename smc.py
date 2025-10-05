@@ -129,7 +129,13 @@ log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -1, 1.])
 print(log_likelihood(truth))
 
+from utils import compute_mass_matrix
 
+# mass_matrix = compute_mass_matrix(log_likelihood, truth)
+# momentum = jax.random.multivariate_normal(jax.random.PRNGKey(0), jnp.zeros(len(truth)), mass_matrix)
+# print("momentum", momentum)
+# import sys
+# sys.exit()
 
 def log_posterior(params, beta=1):
     return log_likelihood(params)*beta + prior(params)
@@ -152,6 +158,7 @@ prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0.,
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
+# boundary_conditions     = jnp.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
 
   
 number_of_particles     = 9000
@@ -160,18 +167,18 @@ number_of_particles     = 9000
 
 
 # temperature_schedule    = jnp.concatenate(jnp.logspace(-2, 0, 20),)
-temperature_schedule    = jnp.logspace(-3, 0, 20)
+# temperature_schedule    = jnp.logspace(-3, 0, 40)
 # temperature_schedule    = jnp.logspace(-2, 0, 20)
 # temperature_schedule    = jnp.concatenate( jnp.logspace(-2, 0, 30),)
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]), jnp.array([5e-5]),jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
 
 
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
 
-folder                  = "GW150914_21"
+folder                  = "GW150914_25"
 label                   = "run1 "
 if not os.path.exists(folder):
     os.makedirs(folder)
@@ -191,13 +198,13 @@ start  = time.time()
 
 
 def step_size_fn(dimensions):
-    return 2e-1/jnp.sqrt(dimensions)
+    return 1/jnp.sqrt(dimensions)/2
 
 dimensions = prior_bounds.shape[0]
 # 
-# step_size = 0.2
-# step_size = step_size_fn(dimensions)
 step_size = 0.2
+# step_size = step_size_fn(dimensions)
+
 
 # particles, weights, logZ, logZerr          = run_persistent_smc(log_likelihood, 
 #                                                 prior, 
@@ -236,12 +243,16 @@ samples , samples_dict = run_smc(log_likelihood,
 import numpy as np
 # samples = np.array(resampled_particles[:,:len(prior_bounds)])
 
+
+
+
+from smc_functions import compute_evidence, draw_iid_samples
+logZ, logZerr = compute_evidence( samples_dict)
+print("logZ = {}, logZerr = {}".format(logZ, logZerr))
 np.savetxt(os.path.join(folder,"posterior_samples.txt"),np.array(samples),)
 
 
-
-from smc_functions import compute_evidence
-logZ, logZerr = compute_evidence( samples_dict)
+samples = draw_iid_samples(samples_dict,)
 
 from corner import corner
 fig = corner(np.array(samples), 
