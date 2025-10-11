@@ -8,7 +8,7 @@ import blackjax
 import numpy as np 
 
 
-
+from netket.jax import vmap_chunked
 
 
 def build_mass_matrix_fn(log_posterior):
@@ -16,7 +16,7 @@ def build_mass_matrix_fn(log_posterior):
         logdensity = lambda x: log_posterior(x, beta)
         
         return compute_mass_matrix(logdensity, pos)
-    return jax.jit(jax.vmap(single, in_axes=(0, None)))
+    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 1000, axis_0_is_sharded=False)) 
 
 
 
@@ -48,20 +48,37 @@ def build_kernel_fn(kernel, log_posterior, step_size):
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
 
     # JIT-compile the batched kernel function
-    batched_kernel = jax.jit(jax.vmap(_kernel, in_axes=(0, 0, 0, 0), out_axes=(0, 0)))
+    batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
     return batched_kernel
 
 
 
 
-
 @jax.jit
-def multinomial_resample(key, particles, weights):
+def multinomial_resample(key, particles, weights, ):
     cdf = jnp.cumsum(weights)
     u = jax.random.uniform(key, shape=(len(weights),))
     idx = jnp.searchsorted(cdf, u)
     return particles[idx]
 
+
+# # @jax.jit
+# def multinomial_resample_PS(key, particles, weights,):
+#     cdf = jnp.cumsum(weights)
+#     u = jax.random.uniform(key, shape=(1000),)
+#     idx = jnp.searchsorted(cdf, u)
+#     return particles[idx]
+
+
+
+def multinomial_resample_fn(number_of_particles):
+    @jax.jit
+    def multinomial_resample(key, particles, weights, ):
+        cdf = jnp.cumsum(weights)
+        u   = jax.random.uniform(key, shape=(number_of_particles,))
+        idx = jnp.searchsorted(cdf, u)
+        return particles[idx]
+    return multinomial_resample
 
 
 def compute_weight_and_ess_fn(log_likelihood):
@@ -91,8 +108,8 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
         weights, weights_nonorm,  ess    = compute_weight_and_ess(samples, beta, beta_prev)
 
         # Resampling
-        samples         = multinomial_resample(resampling_key, samples, weights)
-        # samples           = jax.random.choice(resampling_key, samples, (len(samples), ), weights)
+        # samples         = multinomial_resample(resampling_key, samples, weights)
+        samples         = jax.random.choice(resampling_key, samples, (len(samples),), p=weights)
         # Mutation
         matrices        = mass_matrix_fn(samples, beta)
         
@@ -127,7 +144,7 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
-
+    vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
     samples_dict                 = {}        
 
     initial_position = jax.random.uniform(
@@ -161,9 +178,15 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
         mutation_key            = mutation_keys[step]
 
         samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
+        if jnp.isnan(ess):
+            print("ESS is NaN, stopping SMC.")
+            break
         samples_dict[step]["samples"]           = np.array(samples).tolist()
         samples_dict[step]["weights"]           = np.array(weights).tolist()
         samples_dict[step]["ess"]               = float(ess)
+        samples_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
+        samples_dict[step]['beta']              = float(beta)
+
 
         print("ess = {}".format(ess))
         
@@ -172,33 +195,341 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     return samples, samples_dict
 
 
-def compute_evidence(folder, label):
-    import json
-    result_path = f'{folder}/{label}/result.json'
-    with open(result_path, 'r') as f:
-        result = json.load(f)
-    evidence = 1.0
+
+# class Particle:
+#     def __init__(self, position,log_likelihood, beta):
+#         self.position       = position
+#         self.beta           = beta
+#         self.log_likelihood = log_likelihood
+
+# class Step:
+#     def __init__(self, beta, particles, evidence, evidence_error):
+
+#         self.beta                = beta
+#         self.particles           = particles
+#         self.evidence            = evidence
+#         self.evidence_error      = evidence_error
+#         self.number_of_particles = len(particles)
+
+
+    
+#     def get_positions(self):
+#         return np.array([p.position for p in self.particles])
+    
+#     def get_log_likelihoods(self):
+#         return np.array([p.log_likelihood for p in self.particles])
+    
+
+
+        
+from scipy.special import logsumexp
+
+
+
+
+
+
+
+
+        
+
+
+
+        
+
+
+        
+
+
+
+
+
+def run_persistent_smc(log_likelihood, 
+                        prior,
+                        prior_bounds,
+                        boundary_conditions,
+                        temperature_schedule, 
+                        number_of_particles, 
+                        step_size,   
+                        master_key):
+    
+
+    dimension = len(prior_bounds)
+    def log_posterior(params, beta=1):
+        return log_likelihood(params)*beta + prior(params)
+    
+    kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
+    mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
+    kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
+    init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
+    mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
+    vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
+
+    initial_position            = jax.random.uniform(
+                                                    master_key,
+                                                    shape=(number_of_particles, len(prior_bounds)),
+                                                    minval=prior_bounds[:, 0],
+                                                    maxval=prior_bounds[:, 1]
+                                                    )
+    
+
+    log_likelihoods             = vmapped_likelihood(initial_position)
+
+    n_steps                     = len(temperature_schedule)
+
+    mutation_keys               = random.split(master_key,(n_steps, number_of_particles))
+    resampling_keys             = random.split(master_key+42, n_steps)
+    beta_prev                   = 0.0
+    
+
+
+    particles                   = jnp.column_stack((initial_position,
+                                                    log_likelihoods,
+                                                    np.ones(number_of_particles)*beta_prev, 
+                                                    np.zeros(number_of_particles)   )
+                                                    )
+
+
+    log_z_variances            = []
+    for step, beta in enumerate(temperature_schedule):
+        
+        beta                            = jnp.array(beta)
+        print("Step: {}, ".format(step,))
+        print("Beta: {}, ".format(beta,))
+
+        resampling_key                  = resampling_keys[step]
+        mutation_key                    = mutation_keys[step]
+      
+        log_weights, logZ, logZerr      = compute_persistent_weights(particles, beta, dimension)
+       
+
+        
+        weights                         = jnp.exp(log_weights)
+        weights                         = weights / jnp.sum(weights)
+        ess                             = 1       / jnp.sum(weights**2) 
+
+        particle_position               = particles[:,:dimension -1+1]
+
+        
+        
+     
+        #remsapling
+        resample_indexes                = (jax.random.choice)(resampling_key, jnp.arange(len(particle_position)), (len(initial_position),), p=weights)
+        resampled_particles             = particle_position[resample_indexes]
+        # resampled_particles             = multinomial_resample(resampling_key, particle_position, weights)
+       
+        #mutation
+        matrices                        = mass_matrix_fn(resampled_particles, beta)
+        mutated_samples                 = mutation_step_vectorized(resampled_particles, mutation_key, beta, matrices)
+        log_likelihoods                 = vmapped_likelihood(mutated_samples)
+
+
+
+        new_particles                   = jnp.column_stack((mutated_samples, log_likelihoods,jnp.ones(number_of_particles)*beta, jnp.ones(number_of_particles)*logZ))
+        particles                       = jnp.vstack((particles, new_particles))
+        
+
+        print("ess = {}".format(ess))
+        print("logZ = {}".format(logZ))
+        log_z_variances.append(logZerr)
+        
+        logZerr = jnp.sqrt(np.sum(np.cumsum(log_z_variances)))
+        print("logZerr = {}".format(logZerr))
+
+
+        
+
+
+    return particles, weights, logZ, logZerr
+
+
+def compute_unique(arr):
+
+    res,ind = np.unique(arr, return_index=True)
+    result = res[np.argsort(ind)]
+    return result
+
+
+def compute_persistent_weights(particles, current_beta, dimension,):
+        
+
+
+        evidences               = particles[:,dimension -1 +3]
+        betas                   = particles[:,dimension -1 +2]    
+        beta                    = compute_unique(betas)
+        evidence                = compute_unique(evidences)
+        log_likelihoods         = particles[:,dimension -1 +1]
+        
+        log_weights, log_z      = compute_log_weights_and_log_z(log_likelihoods, beta, evidence, current_beta)
+           
+        
+        log_z_var               = compute_bootstrap_variance(jax.random.PRNGKey(0), log_weights)
+
+        log_weights             = log_weights - jnp.logaddexp.reduce(log_weights)
+
+
+        return log_weights, log_z, log_z_var
+
+def draw_iid_posterior_samples(particles, dimension):
+
+    evidences               = particles[:,dimension -1 +3]
+    betas                   = particles[:,dimension -1 +2]    
+    beta                    = compute_unique(betas)
+    evidence                = compute_unique(evidences)
+    log_likelihoods         = particles[:,dimension -1 +1]
+    log_posterior_primed        = log_likelihoods * beta[:, None] - evidence[:, None]
+    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) #- jnp.log(len(beta))
+    # print(log_likelihoods, log_posterior_primed)
+    #implement rejection sampling 
+    samples = particles[:,: dimension -1+1]
+    # print(samples.shape)
+    M = jnp.max( log_likelihoods - log_posterior_primed) 
+    print(len(log_posterior_primed))
+    u = jax.random.uniform(jax.random.PRNGKey(5), shape=(len(log_posterior_primed),))
+    accepted =  log_likelihoods - log_posterior_primed - M > jnp.log(u)
+
+    samples = samples[accepted]
+    return samples
+
+
+def draw_iid_samples(dict):
+    result = dict 
+    samples         = []
+    log_likelihoods = []
+    betas           = []
+    log_evidences       = []
+    log_evidence = 0.0
+    for key in result.keys():
+    
+        samples += list(result[key]['samples'])
+        
+        log_likelihoods+= list((result[key]['log_likelihoods']))
+        betas.append(result[key]['beta'])
+         # evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+        log_evidence_piece = logsumexp(np.log(result[key]['weights'])) - np.log(len(result[key]['weights']))
+            
+        log_evidence      += log_evidence_piece
+        log_evidences.append(log_evidence)
+        
+
+    print(log_evidences)
+    betas = np.array(betas)
+    log_evidences= np.array(log_evidences)
+    samples = np.array(samples)
+
+   
+   
+    log_likelihoods = np.array(log_likelihoods)
+    print("length samples: ", samples.shape)
+    print("shape log_likelihoods: ", log_likelihoods.shape)
+    print(log_likelihoods)
+    print("length log_likelihoods: ", log_likelihoods.shape)
+    print("betas shape: ", betas.shape)
+
+    log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
+    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
+
+    print("shape log_posterior_primed: ", log_posterior_primed.shape)
+
+    M = np.max( log_likelihoods - log_posterior_primed)  
+    print(len(log_posterior_primed))
+    u = np.random.uniform( size = len(log_posterior_primed))
+    print("u shape: ", u.shape)
+    accepted =  +log_likelihoods - log_posterior_primed - M > np.log(u)
+    samples = samples[accepted]
+    return samples
+    
+
+
+
+
+
+def compute_log_z_piece(key, log_weights):
+        indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
+        log_weights_boot    = log_weights[indices]
+        log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
+        return log_z_piece
+
+def compute_bootstrap_variance(key, log_weights):    
+    keys        = jax.random.split(key, 100)
+    log_zs      = jax.vmap(compute_log_z_piece,in_axes = (0, None)) (keys, log_weights)
+    variance    = jnp.var(log_zs)
+    return variance
+        
+
+def compute_log_weights_and_log_z(likelihoods, beta, evidence, current_beta):
+
+    log_numerator           = likelihoods * current_beta
+    log_denominator         = likelihoods * beta[:, None] - evidence[:, None]
+    log_denominator         = jnp.logaddexp.reduce( log_denominator, axis = 0) - jnp.log(len(beta))
+    log_weights             = log_numerator - log_denominator
+    log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights))
+
+    return log_weights, log_z
+
+
+
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+        
+
+    
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+def compute_evidence(dict):
+ 
+    # with open(result_path, 'r') as f:
+    #     result = json.load(f)
+    result = dict
+    log_evidence = 0.0
     errors    = []
     
 
     for key in result.keys():
         if float(key) > -1:
             
-            evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+            # evidence_piece = np.sum(result[key]['weights'])/len(result[key]['weights'])
+            log_evidence_piece = logsumexp(np.log(result[key]['weights'])) - np.log(len(result[key]['weights']))
             
-            
-            evidence      *= evidence_piece
+            log_evidence      += log_evidence_piece
 
             ### compute evidence with bootstraping
-            boot_weights = np.array(result[key]['weights'])
-            evidences = [np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)]
+            log_boot_weights = np.log(result[key]['weights'])
+            # evidences = [logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) -len(log_boot_weights) for _ in range(1000)]
 
-            dlogz_piece = np.var((np.log([np.sum(boot_weights[np.random.choice(len(boot_weights), len(boot_weights))])/len(boot_weights) for _ in range(1000)])))
+            dlogz_piece = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) -len(log_boot_weights) for _ in range(100)])
             errors.append(dlogz_piece)
             
     
-    logz, dlogz  = np.log(evidence), np.sqrt(np.sum(np.cumsum(errors)))
-    np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
+    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
+    # np.savetxt(f'{folder}/{label}/evidence.txt', np.array([logz, dlogz])[np.newaxis], fmt='%3f')
 
     return logz, dlogz
 

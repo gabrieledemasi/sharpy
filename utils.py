@@ -19,7 +19,7 @@ def softabs_lambda(lambdas, alpha):
     return lambdas / jnp.tanh(alpha * lambdas)
 
 
-def softabs_metric(H, alpha=1):
+def softabs_metric(H, alpha = 1e-2):
     """
     Compute the SoftAbs metric tensor given a potential energy function U.
     
@@ -72,7 +72,7 @@ def compute_mass_matrix(logdensity, q):
 
     mass_matrix = softabs_metric(mass_matrix)
     inverse_mass_matrix = jnp.linalg.inv(mass_matrix)
-    logdet = jnp.linalg.slogdet(mass_matrix)[1]
+    # logdet = jnp.linalg.slogdet(mass_matrix)[1]
     
     return  inverse_mass_matrix
 
