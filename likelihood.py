@@ -244,10 +244,6 @@ class GWNetwork:
 
 
 
-
-    
-    
-
     def detector_constructor(self):
        
         detector_names = self.detectors_settings.keys()
@@ -277,8 +273,10 @@ class GWNetwork:
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary.Frequency
+
     h_plus, h_cross = template(params, f)
     # h_plus, h_cross   = TaylorF2(params, f)
+
 
 
     latitude = detector_dictionary.latitude

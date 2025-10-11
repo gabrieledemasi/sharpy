@@ -2,15 +2,13 @@
 import os
 # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
-#enable jax debugging
-# os.environ["JAX_LOG_COMPILES"] = "1"
-import jax
 
 # This sets the cache directory globally
 jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
+os.environ["JAX_LOG_COMPILES"] = "1"
 
 
 
@@ -144,13 +142,6 @@ def log_posterior(params, beta=1):
 
 prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
 
-# parameters = jnp.array([4.0, 0.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0])
-
-
-# print("Test log likelihood: ", log_likelihood(parameters))
-
-# import sys
-# sys.exit()
 
 
 
