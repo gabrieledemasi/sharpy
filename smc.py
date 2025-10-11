@@ -171,14 +171,14 @@ number_of_particles     = 9000
 # temperature_schedule    = jnp.logspace(-2, 0, 20)
 # temperature_schedule    = jnp.concatenate( jnp.logspace(-2, 0, 30),)
 # temperature_schedule    =jnp.logspace(-1, 0, 10)
-temperature_schedule    = jnp.concatenate((jnp.array([1e-4]),  jnp.array([5e-4]), jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
+temperature_schedule    = jnp.concatenate((  jnp.array([1e-5]),  jnp.array([1e-4]),jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
 
 
 # temperature_schedule    = temperature_schedule[1:]
 parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
 
-folder                  = "GW150914_25"
+folder                  = "GW150914_27"
 label                   = "run1 "
 if not os.path.exists(folder):
     os.makedirs(folder)
@@ -233,7 +233,7 @@ samples , samples_dict = run_smc(log_likelihood,
                                                 temperature_schedule,
                                                 number_of_particles,
                                                 step_size,
-                                                master_key=jax.random.PRNGKey(2),
+                                                master_key=jax.random.PRNGKey(0),
                                              
                                                 )
 
@@ -249,10 +249,13 @@ import numpy as np
 from smc_functions import compute_evidence, draw_iid_samples
 logZ, logZerr = compute_evidence( samples_dict)
 print("logZ = {}, logZerr = {}".format(logZ, logZerr))
-np.savetxt(os.path.join(folder,"posterior_samples.txt"),np.array(samples),)
 
 
 samples = draw_iid_samples(samples_dict,)
+print("the number of samples after rejection sampling is:", len(samples))
+
+np.savetxt(os.path.join(folder,"posterior_samples.txt"),np.array(samples),)
+
 
 from corner import corner
 fig = corner(np.array(samples), 
