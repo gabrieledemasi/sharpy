@@ -42,13 +42,13 @@ class GWDetector:
                  psd_method         = 'welch',
                  T                  = 2.0,
                  trigtime           = 1126259462.4,
-                 sampling_rate      = 2048,
+                 sampling_rate      = 1024,
                  flow               = 20,
                  fhigh              = 512,
                  zero_noise         = True,
                  calibration        = None,
-                 download_data      = 1,
-                 datalen_download   = 64,
+                 download_data      = 0,
+                 datalen_download   = 32,
                  channel            = '',
                  gwpy_tag           = None):
         
@@ -144,6 +144,14 @@ class GWDetector:
         self.gamma      = self.available_detectors[name][2]
         self.zeta       = self.available_detectors[name][3]
         self.elevation  = self.available_detectors[name][4] 
+
+
+                ###mlgw
+
+        self.Times_MLGW = np.arange(0, self.T, 1/self.sampling_rate)-self.T + 1
+        self.n_tukey    = np.arange(self.segment_length)
+        self.w_tukey    = np.ones((self.segment_length,))
+
 
 
 # from flax import struct
@@ -320,12 +328,14 @@ def LAL_template(params, frequency_array):
     return hplus.data.data[int(wf_fmin/df):], hcross.data.data[int(wf_fmin/df):]
 
 
-
+from mlgw_template import mlgw_template
 
 def project_waveform(params, detector_dictionary):
     
     f = detector_dictionary["Frequency"]
-    h_plus, h_cross = LAL_template(params, f)
+    # h_plus, h_cross = LAL_template(params, f)
+    h_plus, h_cross = mlgw_template(params, detector_dictionary)
+    h
 
 
     # h_plus, h_cross   = TaylorF2(params, f)

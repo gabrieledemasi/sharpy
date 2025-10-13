@@ -243,3 +243,41 @@ def Masses2McQ(m1, m2):
 
 
 
+def tukey_window(M, n, w,  alpha: float = 0.5):
+    """
+    JAX implementation of the Tukey window (tapered cosine).
+    Matches scipy.signal.windows.tukey behavior.
+
+    
+    """
+
+    M = len(w)
+    n = np.arange(M)
+    w = np.ones((M,))
+
+    ### These pieces should be here for completeness, but they are not needed in our case. 
+    ### We usually set alpha = 0.4/duration 
+
+    # if alpha <= 0:
+    #     return w
+    # elif alpha >= 1:
+    #     return 0.5 * (1 - jnp.cos(2 * jnp.pi * n / (M - 1)))
+
+    # Piecewise definition
+    first_condition = n < alpha * (M - 1) / 2
+    third_condition = n >= (M - 1) * (1 - alpha / 2)
+
+    w = np.where(
+        first_condition,
+        0.5 * (1 + np.cos(np.pi * ((2 * n) / (alpha * (M - 1)) - 1))),
+        w,
+    )
+
+    w = np.where(
+        third_condition,
+        0.5 * (1 + np.cos(np.pi * ((2 * n) / (alpha * (M - 1)) - 2 / alpha + 1))),
+        w,
+    )
+
+    return w
+

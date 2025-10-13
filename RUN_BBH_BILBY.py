@@ -36,7 +36,7 @@ psd = "/home/gdemasi/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
 detector_settings = {
         "H1": {
             "psd_file"  : None, 
-            "data_file" : None,
+            "data_file" :'/home/gdemasi/gdemasi-work1/SHARPy-GW/H-H1_GWOSC_4KHZ_R1-1126259447-32.txt',
             "channel"   : 'GWOSC',
             "download_data"  : True,
             
@@ -44,7 +44,7 @@ detector_settings = {
         },
         "L1": {
             "psd_file"  :None, 
-            "data_file" : None,
+            "data_file" : '/home/gdemasi/gdemasi-work1/SHARPy-GW/L-L1_GWOSC_4KHZ_R1-1126259447-32.txt',
             "channel"   :'GWOSC',
             "download_data"  : True,
           
@@ -73,8 +73,14 @@ import numpy as np
 
 
 
-# truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, 0.0, 0.0])
+# truth =  np.array([3.0, 1.0, 5.5, np.pi/2, np.pi, np.pi/2, 30.0, 0.7, 0.0, -1, 1])
+truth =  np.array([3.0, 1.0, 5.5, np.pi/2, np.pi, np.pi/2, 31.0, 0.7, 0.0, -1, 1.])
+
 # print(log_likelihood(truth))
+# import sys 
+# sys.exit()
+
+
 
 
 import bilby 
@@ -147,16 +153,16 @@ priors = dict(
 
 
 
-outdir = 'prova2_pool'
+outdir = 'prova_dynesty_4000_correct_MLGW'
 label  = 'test_run'
 result = bilby.run_sampler(
         likelihood=likelihood,
         priors=priors,
-        sampler="nessai",
-        nlive=1000,
+        sampler="dynesty",
+        nlive=4000,
         outdir=outdir,
         label=label,
-        npool = 16, 
+        npool = 64, 
         
         
     )
