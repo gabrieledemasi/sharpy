@@ -1,3 +1,11 @@
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="Do not pass an `input_shape`/`input_dim` argument to a layer",
+    category=UserWarning
+)
+
+
 from astropy import constants as const
 M_sun = const.M_sun.value
 G = const.G.value
@@ -13,9 +21,9 @@ from utils import GreenwichMeanSiderealTime
 from utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses
 
 from noise import load_data, generate_data
-from ripplegw.waveforms import IMRPhenomD
-from ripplegw import ms_to_Mc_eta
-import flax
+# from ripplegw.waveforms import IMRPhenomD
+# from ripplegw import ms_to_Mc_eta
+# import flax
 # from memory_profiler import profile
 import numpy as np
 import sys
@@ -278,7 +286,7 @@ class GWNetwork:
     #     self.batched_detector = stack_detectors(detectors_list)
     #     return self.batched_detector
     
-import lal
+# import lal
 def createLALDict(phase_order, amp_order, lambda1, lambda2):
 
     lal_pars    = lal.CreateDict()
@@ -292,7 +300,7 @@ def createLALDict(phase_order, amp_order, lambda1, lambda2):
 
     return lal_pars
 
-import lalsimulation as ls
+# import lalsimulation as ls
 def LAL_template(params, frequency_array):
 
     approx = ls.IMRPhenomD
@@ -335,7 +343,7 @@ def project_waveform(params, detector_dictionary):
     f = detector_dictionary["Frequency"]
     # h_plus, h_cross = LAL_template(params, f)
     h_plus, h_cross = mlgw_template(params, detector_dictionary)
-    h
+    
 
 
     # h_plus, h_cross   = TaylorF2(params, f)

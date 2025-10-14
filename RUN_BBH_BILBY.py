@@ -3,10 +3,10 @@ import os
 # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 import os
 
-import jax.numpy as np
+
 #enable jax debugging
 # os.environ["JAX_LOG_COMPILES"] = "1"
-import jax
+
 
 
 
@@ -24,10 +24,21 @@ from functools import partial
 import time 
 import json
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="Do not pass an `input_shape`/`input_dim` argument to a layer",
+    category=UserWarning
+)
 
 
-from jax.scipy.special import logsumexp
  
+import warnings
+warnings.filterwarnings("ignore", message=".*Do not pass an `input_shape`/`input_dim` argument.*", category=UserWarning)
+
+import tensorflow as tf
+import logging
+tf.get_logger().setLevel(logging.ERROR)
 
 
 psd = "/home/gdemasi/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
@@ -159,10 +170,10 @@ result = bilby.run_sampler(
         likelihood=likelihood,
         priors=priors,
         sampler="dynesty",
-        nlive=4000,
+        nlive=1000,
         outdir=outdir,
         label=label,
-        npool = 64, 
+        npool = 1, 
         
         
     )
