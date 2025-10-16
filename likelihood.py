@@ -469,7 +469,7 @@ def template(params, frequency_array):
     chi1                    = params[9] # Dimensionless spin
     chi2                    = params[10]
     tc                      = 0.0 # Time of coalescence in seconds
-    phic                    = params[4] # Time of coalescence
+    phic                    = params[4] # Phase of coalescence
     dist_mpc                = jnp.exp(params[2]) # Distance to source in Mpc
     inclination             = params[3] # Inclination Angle
 
