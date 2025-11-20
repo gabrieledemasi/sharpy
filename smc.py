@@ -1,14 +1,10 @@
 
 import os
+import jax
 # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2000"
 
 
-# This sets the cache directory globally
-jax.config.update("jax_compilation_cache_dir", "/tmp/jax_cache")
-jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
-jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
-jax.config.update("jax_persistent_cache_enable_xla_caches", "xla_gpu_per_fusion_autotune_cache_dir")
-os.environ["JAX_LOG_COMPILES"] = "1"
+
 
 
 
@@ -83,49 +79,49 @@ def prior(params):
 # def log_posterior(params, beta=1):
 #     return log_likelihood(params)*beta + prior(params)
 
-psd = "/leonardo/home/userexternal/gdemasi0/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
+# psd = "/leonardo/home/userexternal/gdemasi0/SHARPy-GW/LIGO-P1200087-v18-aLIGO_DESIGN_psd.dat"
 
 
-detector_settings = {
-        "H1": {
-            "psd_file"  : None, 
-            "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/H-H1_GWOSC_4KHZ_R1-1126259447-32.txt',
-            "channel"   : 'GWOSC',
+# detector_settings = {
+#         "H1": {
+#             "psd_file"  : None, 
+#             "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/H-H1_GWOSC_4KHZ_R1-1126259447-32.txt',
+#             "channel"   : 'GWOSC',
             
             
-        },
-        "L1": {
-            "psd_file"  : None, 
-            "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/L-L1_GWOSC_4KHZ_R1-1126259447-32.txt',
-            "channel"   :'GWOSC',
+#         },
+#         "L1": {
+#             "psd_file"  : None, 
+#             "data_file" : '/leonardo/home/userexternal/gdemasi0/SMC/L-L1_GWOSC_4KHZ_R1-1126259447-32.txt',
+#             "channel"   :'GWOSC',
           
-        },
+#         },
             
           
   
 
 
-    }
+#     }
 
 
 from likelihood import GWNetwork, log_likelihood_det
 
 
 
-from likelihood import GWNetwork, log_likelihood_det
-gw_network = GWNetwork(detector_settings,
+# from likelihood import GWNetwork, log_likelihood_det
+# gw_network = GWNetwork(detector_settings,
                        
-                    #injection_parameters=truth,
+#                     #injection_parameters=truth,
     
-                       )
+#                        )
 
-batched_detector = gw_network.batched_detector
+# batched_detector = gw_network.batched_detector
 
-log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
+# log_likelihood = partial(log_likelihood_det, detector_list=batched_detector)
 
 
-truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -1, 1.])
-print(log_likelihood(truth))
+# truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -1, 1.])
+# print(log_likelihood(truth))
 
 from utils import compute_mass_matrix
 
@@ -140,7 +136,7 @@ def log_posterior(params, beta=1):
 
 
 
-prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
+# prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
 
 
 
@@ -148,8 +144,10 @@ prior_bounds =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0.,
 
 
 # prior_bounds            =jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [3., 6.], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [6, 14], [0.4, 1.], [-1e-1, 1e-1]])
-boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
+# boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
 # boundary_conditions     = jnp.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])#0: periodic, 1: reflective
+prior_bounds           =jnp.array([[-5, 5] for _ in range(15)])
+boundary_conditions     = jnp.array([0 for _ in range(15)])#0: periodic, 1: reflective
 
   
 number_of_particles     = 9000
