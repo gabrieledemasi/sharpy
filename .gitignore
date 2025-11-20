@@ -1,6 +1,6 @@
 *
 
-!sharpy/PSDs/
+!sharpy/PSDs/**
 !sharpy/*.py
 !pyproject.toml
 !README.md
