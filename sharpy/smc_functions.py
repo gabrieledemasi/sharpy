@@ -1,5 +1,5 @@
 import jax
-from utils import compute_mass_matrix
+from sharpy.utils import compute_mass_matrix
 import jax.numpy as jnp 
 from jax import random
 from blackjax.mcmc import integrators
@@ -7,6 +7,7 @@ import blackjax
 
 import numpy as np 
 from netket.jax import vmap_chunked
+import json
 
 
 def build_mass_matrix_fn(log_posterior):
@@ -118,7 +119,17 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
 
 
 
-def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperature_schedule, number_of_particles, step_size,   master_key):
+def run_smc(log_likelihood, 
+            prior, 
+            prior_bounds,
+            boundary_conditions, 
+            temperature_schedule, 
+            number_of_particles, 
+            step_size,   
+            master_key,
+            folder = ".",
+            label = "run",
+            ):
 
     def log_posterior(params, beta=1):
         return log_likelihood(params)*beta + prior(params)
@@ -132,7 +143,7 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
     vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
-    samples_dict                 = {}        
+    smc_dict                   = {}        
 
     initial_position = jax.random.uniform(
                                         jax.random.PRNGKey(1),
@@ -155,10 +166,11 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
     beta_prev       = initial_beta
     weights         = initial_weights
     samples         = initial_position
+    
 
     for step in range(n_steps):
 
-        samples_dict[int(step)] = {}
+        smc_dict[int(step)] = {}
 
         beta                    = temperature_schedule[step]
         resampling_key          = resampling_keys[step]
@@ -170,18 +182,32 @@ def run_smc(log_likelihood, prior, prior_bounds, boundary_conditions, temperatur
             print("ESS is NaN, stopping SMC.")
             break
 
-        samples_dict[step]["samples"]           = np.array(samples).tolist()
-        samples_dict[step]["weights"]           = np.array(weights).tolist()
-        samples_dict[step]["ess"]               = float(ess)
-        samples_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
-        samples_dict[step]['beta']              = float(beta)
+        smc_dict[step]["samples"]           = np.array(samples).tolist()
+        smc_dict[step]["weights"]           = np.array(weights).tolist()
+        smc_dict[step]["ess"]               = float(ess)
+        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
+        smc_dict[step]['beta']              = float(beta)
 
 
         print("ess = {}".format(ess))
         
         beta_prev                               = beta
 
-    return samples, samples_dict
+    
+    posterior_samples                 = draw_iid_samples(smc_dict)
+    logZ, dlogZ             = compute_evidence(smc_dict)
+
+
+    result_dict = {}
+    result_dict['SMC']      = smc_dict
+    result_dict['logZ']     = float(logZ)
+    result_dict["dlogZ"]    = float(dlogZ)
+    result_dict['posterior_samples'] = posterior_samples.tolist()
+
+    with open(f"{folder}/{label}_result.json", "w") as f:
+        json.dump(result_dict, f)
+    
+    return result_dict
 
 
 
@@ -222,7 +248,7 @@ def draw_iid_samples(dict):
     log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
 
  
-    "perform rejection sampling"
+    #rejection sampling
     M = np.max( log_likelihoods - log_posterior_primed)  
     u = np.random.uniform( size = len(log_posterior_primed))
     accepted =  +log_likelihoods - log_posterior_primed - M > np.log(u)
