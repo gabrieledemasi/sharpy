@@ -4,34 +4,28 @@ import jax.numpy as jnp
 from jax import random
 from blackjax.mcmc import integrators
 import blackjax
-
 import numpy as np 
 from netket.jax import vmap_chunked
 import json
-
+import os
 
 def build_mass_matrix_fn(log_posterior):
+    #build mass matrix function
     def single(pos, beta):
         logdensity = lambda x: log_posterior(x, beta)
-        
         return compute_mass_matrix(logdensity, pos)
+    #use vmap_chunked to avoid OOM for large number of particles
     return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 1000, axis_0_is_sharded=False)) 
 
 
 
 def mutation_step_fn(init_fn, kernel_fn,log_posterior):
-
+    #build mutation step with NUTS kernel
     def mutation_step(position, keys, beta, matrices):
-        """
-        position: (M, D)
-        beta: scalar or vector
-        """
-        logdensity_fn   = lambda x: log_posterior(x, beta)  # Only for init, not passed into JIT
 
+        logdensity_fn   = lambda x: log_posterior(x, beta)  # Only for init, not passed into JIT
         # Initialize state
         state           = init_fn(position, logdensity_fn,)
-        
-
         beta_batch      = jnp.broadcast_to(beta, (position.shape[0],))
         state, _        = kernel_fn(keys, state,  beta_batch, matrices)
 
@@ -41,11 +35,10 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
 
 
 def build_kernel_fn(kernel, log_posterior, step_size):
+
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
-
         return kernel(rng_key, state, logdensity_fn, step_size, metric)
-
     # JIT-compile the batched kernel function
     batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
     return batched_kernel
@@ -75,10 +68,8 @@ def compute_weight_and_ess_fn(log_likelihood):
     @jax.jit
     def compute_weight_and_ess(samples, beta_after, beta_before):
         
-
         beta_diff = beta_after - beta_before
         log_weights = jax.vmap(log_likelihood,)(samples) * beta_diff
-        
         log_weights = log_weights #- jnp.max(log_weights)
         weights_nonorm = jnp.exp(log_weights)
         weights = weights_nonorm / jnp.sum(weights_nonorm)
@@ -89,23 +80,16 @@ def compute_weight_and_ess_fn(log_likelihood):
 
 
 def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess):
-
+    
+    # Single SMC step
     def smc_step(samples, beta,beta_prev, weights,  resampling_key, mutation_keys):
-
-
-        # jax.debug.print("Mutation done: {samples}", samples=samples)
-        # Reweighting
-        weights, weights_nonorm,  ess    = compute_weight_and_ess(samples, beta, beta_prev)
-
-  
+        weights, weights_nonorm,  ess   = compute_weight_and_ess(samples, beta, beta_prev)
         samples                         = jax.random.choice(resampling_key, samples, (len(samples),), p=weights)
         # Mutation
         matrices                        = mass_matrix_fn(samples, beta)
         samples                         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
 
         return samples, weights, weights_nonorm, ess
-    
-    
     
     return smc_step
 
@@ -130,12 +114,20 @@ def run_smc(log_likelihood,
             folder = ".",
             label = "run",
             ):
+    
 
+
+    if not os.path.exists(folder):
+    os.makedirs(folder)
+
+
+
+    #Define the log-posterior
     def log_posterior(params, beta=1):
         return log_likelihood(params)*beta + prior(params)
 
+    #Set up the SMC components
     kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
-    
     mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
     kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
     compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood)
@@ -145,6 +137,7 @@ def run_smc(log_likelihood,
     vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
     smc_dict                   = {}        
 
+    #Generate initial particles from the prior
     initial_position = jax.random.uniform(
                                         jax.random.PRNGKey(1),
                                         shape=(number_of_particles, len(prior_bounds)),
@@ -153,21 +146,17 @@ def run_smc(log_likelihood,
                                         )
     
     
-
+    #initialize SMC
     n_steps         = len(temperature_schedule)
-
     mutation_keys   = random.split(master_key,(n_steps, number_of_particles))
     resampling_keys = random.split(master_key+42, n_steps)
-
     initial_beta    = 0.0
     initial_weights = jnp.ones(number_of_particles) / number_of_particles
-
-    
     beta_prev       = initial_beta
     weights         = initial_weights
     samples         = initial_position
     
-
+    #SMC main loop
     for step in range(n_steps):
 
         smc_dict[int(step)] = {}
@@ -176,28 +165,27 @@ def run_smc(log_likelihood,
         resampling_key          = resampling_keys[step]
         mutation_key            = mutation_keys[step]
 
+        #Do a SMC step
         samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
-
+        print("ess = {}".format(ess))
         if jnp.isnan(ess):
             print("ESS is NaN, stopping SMC.")
             break
 
+        #Store SMC step results
         smc_dict[step]["samples"]           = np.array(samples).tolist()
         smc_dict[step]["weights"]           = np.array(weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
         smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
         smc_dict[step]['beta']              = float(beta)
+        beta_prev                           = beta
 
 
-        print("ess = {}".format(ess))
-        
-        beta_prev                               = beta
-
-    
-    posterior_samples                 = draw_iid_samples(smc_dict)
+    #compute evidence and draw iid samples using rejection sampling
+    posterior_samples       = draw_iid_samples(smc_dict)
     logZ, dlogZ             = compute_evidence(smc_dict)
 
-
+    #save results
     result_dict = {}
     result_dict['SMC']      = smc_dict
     result_dict['logZ']     = float(logZ)
