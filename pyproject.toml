@@ -1,0 +1,46 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    ]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ['sharpy']
+
+[project]
+name = 'sharpy'
+description = 'Sequential HAmiltonian Riemann montecarlo Python sampler for cutting-edge Gravitational Wave parameter estimation'
+
+version = '0.0.1'
+requires-python = '>= 3.11'
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {file = "LICENSE"}
+keywords = []
+authors = [
+  {name = "Gabriele Demasi", email = "gabriele.demasi@unifi.it"},
+  {name = "Walter Del Pozzo", email = "walter.delpozzo@unipi.it"},
+  ]
+
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  'Topic :: Scientific/Engineering :: Astronomy',
+  'Topic :: Scientific/Engineering :: Physics',
+]
+
+dependencies = [
+                "gwpy",
+                "ripplegw",
+                "astropy",
+                "flax",
+                "blackjax @ git+https://github.com/gabrieledemasi/blackjax@main",
+                "NetKet==3.19.2",
+                "jax",
+                "corner",
+
+]
+
+
+
+
+
+
