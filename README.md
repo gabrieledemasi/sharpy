@@ -7,8 +7,8 @@ For avoiding package incompatibilities, create a dedicated conda environment
 
 or if conda is not available
 
-`python y -m venv /path_to/sharpy_env`<br>
-`/path_to/sharpy_env/bin/activate`
+`python -m venv /path_to/sharpy_env`<br>
+`source /path_to/sharpy_env/bin/activate`
 
 then install SHARPy:<br>
 `git clone git@github.com:gabrieledemasi/SHARPy-GW.git` <br>
