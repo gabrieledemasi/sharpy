@@ -8,7 +8,7 @@ import warnings
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt, decimate
 from scipy.signal.windows import tukey
-import welch
+from sharpy import welch
 from gwpy.timeseries import TimeSeries
 
 def fetch_data(ifo, tstart, tend, channel=None, path=None, verbose=0, ):

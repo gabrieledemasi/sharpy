@@ -1,23 +1,30 @@
-from astropy import constants as const
-M_sun = const.M_sun.value
-G = const.G.value
-c = const.c.value
-pc = const.pc.value
+
+
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 from functools import partial
 import jax
-from utils import GreenwichMeanSiderealTime
-from utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses
+
+from sharpy.utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses,GreenwichMeanSiderealTime
+from sharpy.noise import load_data, generate_data
+
+
 jax.config.update("jax_enable_x64", True) 
-from noise import load_data, generate_data
+
 from ripplegw.waveforms import IMRPhenomD
 from ripplegw import ms_to_Mc_eta
-import flax
-
 
 import sys
+
+
+from astropy import constants as const
+M_sun = const.M_sun.value
+G = const.G.value
+c = const.c.value
+pc = const.pc.value
+
+
 
 
 class GWDetector:
@@ -187,7 +194,7 @@ def inject_signal_in_detector(params, detector_dictionary):
         Inject a signal into the detector noise.
         """
         h           = project_waveform(params, detector_dictionary)
-        
+
         # add to the detector noise
         detector_dictionary.FrequencySeries += h
 
