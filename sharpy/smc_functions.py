@@ -68,14 +68,15 @@ def compute_weight_and_ess_fn(log_likelihood):
     @jax.jit
     def compute_weight_and_ess(samples, beta_after, beta_before):
         
-        beta_diff = beta_after - beta_before
-        log_weights = jax.vmap(log_likelihood,)(samples) * beta_diff
-        log_weights = log_weights #- jnp.max(log_weights)
-        weights_nonorm = jnp.exp(log_weights)
-        weights = weights_nonorm / jnp.sum(weights_nonorm)
-        ess = (jnp.sum(weights)) ** 2 / jnp.sum(weights**2)
+        beta_diff               = beta_after - beta_before
+        log_weights             = jax.vmap(log_likelihood,)(samples) * beta_diff
+        stabilized_log_weights  = log_weights - jnp.max(log_weights)
+        log_ess                 = 2 * jax.scipy.special.logsumexp(stabilized_log_weights) - jax.scipy.special.logsumexp(2 * stabilized_log_weights)
+        ess                     = jnp.exp(log_ess)
+        log_weights             = log_weights.flatten()
 
-        return weights,weights_nonorm, ess
+        return log_weights, ess
+    
     return compute_weight_and_ess
 
 
@@ -83,16 +84,91 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
     
     # Single SMC step
     def smc_step(samples, beta,beta_prev, weights,  resampling_key, mutation_keys):
-        weights, weights_nonorm,  ess   = compute_weight_and_ess(samples, beta, beta_prev)
-        samples                         = jax.random.choice(resampling_key, samples, (len(samples),), p=weights)
+
+        log_weights, ess                = compute_weight_and_ess(samples, beta, beta_prev)
+        weights                         = jnp.exp(log_weights - jax.scipy.special.logsumexp(log_weights))
+        index                           = jax.random.choice(resampling_key, np.arange(len(samples)), (len(samples),), p=weights)
+        samples                         = samples[index]
         # Mutation
         matrices                        = mass_matrix_fn(samples, beta)
         samples                         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
 
-        return samples, weights, weights_nonorm, ess
+        return samples, log_weights, ess
     
     return smc_step
 
+
+
+
+
+
+
+from scipy.special import logsumexp
+
+
+def draw_iid_samples(dict):
+    result = dict 
+    samples         = []
+    log_likelihoods = []
+    betas           = []
+    log_evidences   = []
+    log_evidence    = 0.0 #this is the evidence of the prior 
+
+    for key in result.keys():
+        
+        samples         += list(result[key]['samples'])
+        log_likelihoods += list((result[key]['log_likelihoods']))
+        betas.append(result[key]['beta'])
+
+        log_evidence_piece = logsumexp(result[key]['log_weights']) - np.log(len(result[key]['log_weights']))
+            
+        log_evidence      += log_evidence_piece
+        log_evidences.append(log_evidence)
+        
+    betas                   = np.array(betas)
+    log_evidences           = np.array(log_evidences)
+    samples                 = np.array(samples)
+    log_likelihoods         = np.array(log_likelihoods)
+
+    "construct mixture posterior"
+    log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
+    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
+
+ 
+    #rejection sampling
+    M           = np.max( log_likelihoods - log_posterior_primed)  
+    u           = np.random.uniform( size = len(log_posterior_primed))
+    accepted    =  +log_likelihoods - log_posterior_primed - M > np.log(u)
+    samples     = samples[accepted]
+
+
+    return samples
+
+
+
+def compute_evidence(result_dict):
+
+    
+    log_evidence = 0.0
+    errors       = []
+    
+
+    for key in result_dict.keys():
+        
+        log_evidence_piece = logsumexp(result_dict[key]['log_weights']) - np.log(len(result_dict[key]['log_weights']))
+        
+        log_evidence      += log_evidence_piece
+
+        ### compute evidence with bootstraping
+        log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
+        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) - len(log_boot_weights) for _ in range(100)])
+
+        errors.append(dlogz_piece)
+        
+    
+    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
+
+    return logz, dlogz
 
 
 
@@ -118,7 +194,7 @@ def run_smc(log_likelihood,
 
 
     if not os.path.exists(folder):
-    os.makedirs(folder)
+        os.makedirs(folder)
 
 
 
@@ -166,7 +242,7 @@ def run_smc(log_likelihood,
         mutation_key            = mutation_keys[step]
 
         #Do a SMC step
-        samples, weights_nonorm, weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
+        samples, log_weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
         print("ess = {}".format(ess))
         if jnp.isnan(ess):
             print("ESS is NaN, stopping SMC.")
@@ -174,7 +250,7 @@ def run_smc(log_likelihood,
 
         #Store SMC step results
         smc_dict[step]["samples"]           = np.array(samples).tolist()
-        smc_dict[step]["weights"]           = np.array(weights).tolist()
+        smc_dict[step]["log_weights"]           = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
         smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
         smc_dict[step]['beta']              = float(beta)
@@ -201,105 +277,6 @@ def run_smc(log_likelihood,
 
 
         
-from scipy.special import logsumexp
-
-
-def draw_iid_samples(dict):
-    result = dict 
-    samples         = []
-    log_likelihoods = []
-    betas           = []
-    log_evidences   = []
-    log_evidence    = 0.0 #this is the evidence of the prior 
-
-    for key in result.keys():
-        
-
-        samples         += list(result[key]['samples'])
-        log_likelihoods += list((result[key]['log_likelihoods']))
-        betas.append(result[key]['beta'])
-
-        log_evidence_piece = logsumexp(np.log(result[key]['weights'])) - np.log(len(result[key]['weights']))
-            
-        log_evidence      += log_evidence_piece
-        log_evidences.append(log_evidence)
-        
-
-   
-    betas                   = np.array(betas)
-    log_evidences           = np.array(log_evidences)
-    samples                 = np.array(samples)
-    log_likelihoods         = np.array(log_likelihoods)
-
-    "construct mixture posterior"
-    log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
-    log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
-
- 
-    #rejection sampling
-    M = np.max( log_likelihoods - log_posterior_primed)  
-    u = np.random.uniform( size = len(log_posterior_primed))
-    accepted =  +log_likelihoods - log_posterior_primed - M > np.log(u)
-    samples = samples[accepted]
-
-
-    return samples
-    
-
-
-
-
-
-def compute_log_z_piece(key, log_weights):
-        indices             = jax.random.choice(key, len(log_weights), (len(log_weights),))
-        log_weights_boot    = log_weights[indices]
-        log_z_piece         = jnp.logaddexp.reduce(log_weights_boot) - jnp.log(len(log_weights_boot))
-        return log_z_piece
-
-def compute_bootstrap_variance(key, log_weights):    
-    keys        = jax.random.split(key, 100)
-    log_zs      = jax.vmap(compute_log_z_piece,in_axes = (0, None)) (keys, log_weights)
-    variance    = jnp.var(log_zs)
-    return variance
-        
-
-def compute_log_weights_and_log_z(likelihoods, beta, evidence, current_beta):
-
-    log_numerator           = likelihoods * current_beta
-    log_denominator         = likelihoods * beta[:, None] - evidence[:, None]
-    log_denominator         = jnp.logaddexp.reduce( log_denominator, axis = 0) - jnp.log(len(beta))
-    log_weights             = log_numerator - log_denominator
-    log_z                   = jnp.logaddexp.reduce(log_weights) - np.log(len(log_weights))
-
-    return log_weights, log_z
-
-
-
-def compute_evidence(result_dict):
-
-    
-    log_evidence = 0.0
-    errors       = []
-    
-
-    for key in result_dict.keys():
-        
-        log_evidence_piece = logsumexp(np.log(result_dict[key]['weights'])) - np.log(len(result_dict[key]['weights']))
-        
-        log_evidence      += log_evidence_piece
-
-        ### compute evidence with bootstraping
-        log_boot_weights   = np.log(result_dict[key]['weights'])
-        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) - len(log_boot_weights) for _ in range(100)])
-
-        errors.append(dlogz_piece)
-        
-    
-    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
-
-    return logz, dlogz
-
-
 
 
 
