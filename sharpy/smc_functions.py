@@ -104,6 +104,7 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
 
 
 from scipy.special import logsumexp
+import sys
 
 
 def draw_iid_samples(dict):
@@ -141,6 +142,7 @@ def draw_iid_samples(dict):
     accepted    =  +log_likelihoods - log_posterior_primed - M > np.log(u)
     samples     = samples[accepted]
 
+    
 
     return samples
 
@@ -161,34 +163,75 @@ def compute_evidence(result_dict):
 
         ### compute evidence with bootstraping
         log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
-        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) - len(log_boot_weights) for _ in range(100)])
-
+        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))])  for _ in range(100)])
+        
         errors.append(dlogz_piece)
         
-    
-    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
+    #particle from different steps are correlated, so this naive sum is an underestimation.
+    # Here I correct the error estimate by a factor sqrt(log(N_steps))
+    # Here https://arxiv.org/pdf/1701.01001 a possible reference for this correction
+
+    logz, dlogz  = log_evidence, np.sqrt((np.sum(errors))*np.sqrt(np.log(len(result_dict.keys()))))
 
     return logz, dlogz
 
 
 
 
+def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
+    
+    beta_lower = beta_prev
+    beta_upper = 1.0
+    while True:
+        if beta_upper - beta_lower < 1e-4:
+            beta_next = beta_upper
+            break
+        beta_next = (beta_lower + beta_upper) / 2.0
+        # print("Searching for next beta between {} and {}, current guess: {}".format(beta_lower, beta_upper, beta_next))
+        ess_diff = compute_weight_and_ess(samples, beta_upper, beta_prev)[1] - ess_target
+        if ess_diff > 0:
+            beta_lower = beta_next
+        else:
+            beta_upper= beta_next
+    return beta_next
+
+
+
+
+# def compute_logZ(log_weights, ess , previous_logZ=0.0, previous_dlogZ=0.0,):
+#     logZ               = jax.scipy.special.logsumexp(log_weights) - jnp.log(len(log_weights))
+
+#     # dlogz_piece        = np.var([logsumexp(log_weights[np.random.choice(len(log_weights), len(log_weights))]) - len(log_weights) for _ in range(1000)])
+#     epsilon            = ess/len(log_weights)
+#     dlogz_piece        = np.sqrt((1.0 - epsilon) / (epsilon * len(log_weights)))
+#     print("dlogz_piece =", dlogz_piece)
+
+#     st                 = np.sum((jnp.exp(log_weights) - jnp.exp(logZ))**2)/(len(log_weights) -1)
+#     var_logZ           = st / (len(log_weights)) / jnp.exp( logZ)**2
+#     # dlogZ              = np.sqrt(previous_dlogZ**2 + np.log(len(log_weights))*dlogz_piece**2)
+#     dlogZ             = np.sqrt(previous_dlogZ**2 + var_logZ )
+#     logZ              += previous_logZ
 
 
 
 
 
+    # return logZ, dlogZ
 
-def run_smc(log_likelihood, 
+
+
+def run_smc_adaptive(log_likelihood, 
             prior, 
             prior_bounds,
             boundary_conditions, 
-            temperature_schedule, 
+            alpha,
             number_of_particles, 
             step_size,   
             master_key,
             folder = ".",
             label = "run",
+            initial_logZ = 0.0,
+            initial_dlogZ = 0.0
             ):
     
 
@@ -211,7 +254,7 @@ def run_smc(log_likelihood,
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
     vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
-    smc_dict                   = {}        
+    smc_dict                    = {}        
 
     #Generate initial particles from the prior
     initial_position = jax.random.uniform(
@@ -223,38 +266,51 @@ def run_smc(log_likelihood,
     
     
     #initialize SMC
-    n_steps         = len(temperature_schedule)
-    mutation_keys   = random.split(master_key,(n_steps, number_of_particles))
-    resampling_keys = random.split(master_key+42, n_steps)
+    
+
     initial_beta    = 0.0
     initial_weights = jnp.ones(number_of_particles) / number_of_particles
     beta_prev       = initial_beta
     weights         = initial_weights
     samples         = initial_position
+    beta_next       = initial_beta
+    step            = 0
+
+    previous_logZ    = initial_logZ
+    previous_dlogZ   = initial_dlogZ
+
     
     #SMC main loop
-    for step in range(n_steps):
-
+    while beta_next < 1.0 - 1e-8:
+        beta_next = find_next_beta(compute_weight_and_ess, samples, beta_prev,ess_target= int(number_of_particles * alpha))
+        # sys.exit()
         smc_dict[int(step)] = {}
 
-        beta                    = temperature_schedule[step]
-        resampling_key          = resampling_keys[step]
-        mutation_key            = mutation_keys[step]
+
+        resampling_key          = random.split(master_key+42 + step, 1)[0]
+        mutation_key            = random.split(master_key + step, number_of_particles)
 
         #Do a SMC step
-        samples, log_weights, ess   = step_for(samples, beta, beta_prev,weights, resampling_key, mutation_key)
-        print("ess = {}".format(ess))
+        samples, log_weights, ess   = step_for(samples, beta_next, beta_prev,weights, resampling_key, mutation_key)
+        # logZ, dlogZ                 = compute_logZ(log_weights,  ess, previous_logZ, previous_dlogZ,)
+        # previous_logZ               = logZ
+        # previous_dlogZ              = dlogZ
+        # print("ess = {}".format(ess))
         if jnp.isnan(ess):
             print("ESS is NaN, stopping SMC.")
             break
 
         #Store SMC step results
         smc_dict[step]["samples"]           = np.array(samples).tolist()
-        smc_dict[step]["log_weights"]           = np.array(log_weights).tolist()
+        smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
         smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
-        smc_dict[step]['beta']              = float(beta)
-        beta_prev                           = beta
+        smc_dict[step]['beta']              = float(beta_next)
+        # smc_dict[step]['logZ']              = float(logZ)
+        # smc_dict[step]['dlogZ']             = float(dlogZ)
+        beta_prev                           = beta_next
+        step                               += 1
+        print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)
 
 
     #compute evidence and draw iid samples using rejection sampling
@@ -276,7 +332,17 @@ def run_smc(log_likelihood,
 
 
 
-        
+
+
+
+
+
+
+
+
+
+
+
 
 
 
