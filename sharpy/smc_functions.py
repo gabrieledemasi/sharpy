@@ -220,7 +220,7 @@ def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
 
 
 
-def run_smc_adaptive(log_likelihood, 
+def run_smc(log_likelihood, 
             prior, 
             prior_bounds,
             boundary_conditions, 

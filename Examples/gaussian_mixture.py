@@ -13,7 +13,7 @@ import time
 import json
 from jax.scipy.special import logsumexp
 import numpy as np
-from sharpy.smc_functions import  run_smc_adaptive
+from sharpy.smc_functions import  run_smc
 
 
 
@@ -52,7 +52,7 @@ log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weig
 
 
 #Run Sharpy
-result_dict     = run_smc_adaptive(  log_likelihood,
+result_dict     = run_smc(  log_likelihood,
                             prior,
                             prior_bounds,
                             boundary_conditions,
