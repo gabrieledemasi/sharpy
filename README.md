@@ -16,4 +16,4 @@ then install SHARPy:<br>
 `pip install .`
 
 To run on GPU please install this version of JAX:
-`pip install jax jaxlib jax-cuda12-plugin jax-cuda12-pjrt`
+`pip install --upgrade "jax[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html`
