@@ -167,11 +167,11 @@ def compute_evidence(result_dict):
         
         errors.append(dlogz_piece)
         
-    #particle from different steps are correlated, so this naive sum is an underestimation.
+    # particle from different steps are correlated, so this naive sum is an underestimation.
     # Here I correct the error estimate by a factor sqrt(log(N_steps))
-    # Here https://arxiv.org/pdf/1701.01001 a possible reference for this correction
+    # Here a possible reference for this correction
 
-    logz, dlogz  = log_evidence, np.sqrt((np.sum(errors))*np.sqrt(np.log(len(result_dict.keys()))))
+    logz, dlogz  = log_evidence, np.sqrt((np.sum(errors))*np.log(len(result_dict.keys())))
 
     return logz, dlogz
 
@@ -183,7 +183,7 @@ def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
     beta_lower = beta_prev
     beta_upper = 1.0
     while True:
-        if beta_upper - beta_lower < 1e-4:
+        if beta_upper - beta_lower < 1e-8:
             beta_next = beta_upper
             break
         beta_next = (beta_lower + beta_upper) / 2.0

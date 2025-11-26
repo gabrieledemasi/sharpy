@@ -31,12 +31,12 @@ def prior(params):
 
 
 
-prior_bounds            = jnp.array([[-5, 5] for _ in range(50)])
-boundary_conditions     = jnp.array([0 for _ in range(50)])
+prior_bounds            = jnp.array([[-5, 5] for _ in range(30)])
+boundary_conditions     = jnp.array([0 for _ in range(30)])
 number_of_particles     = 5000
 step_size               = 0.2
-alpha                   = 0.9
-folder                  = f"Gaussian_mixture_example"
+alpha                   = 0.8
+folder                  = f"Gaussian_mixture_example_narrow"
 label                   = f"sharpy_run"
 
 
@@ -47,7 +47,7 @@ start     = time.time()
 
 #Define the Gaussian Mixture Log-Likelihood
 from sharpy.test_distributions import bimodal_gaussian_mixture
-log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weight=0.5, dimensions=50)
+log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weight=0.5, dimensions=30)
 
 
 
