@@ -135,7 +135,7 @@ def draw_iid_samples(dict):
     log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
     log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
 
- 
+
     #rejection sampling
     M           = np.max( log_likelihoods - log_posterior_primed)  
     u           = np.random.uniform( size = len(log_posterior_primed))
@@ -154,26 +154,39 @@ def compute_evidence(result_dict):
     log_evidence = 0.0
     errors       = []
     
+    log_weight_list = [result_dict[key]['log_weights'] for key in result_dict.keys()]
+    print(log_weight_list[0][0])
+    
 
     for key in result_dict.keys():
         
         log_evidence_piece = logsumexp(result_dict[key]['log_weights']) - np.log(len(result_dict[key]['log_weights']))
+
+        ess = result_dict[key]['ess']
+        
         
         log_evidence      += log_evidence_piece
 
         ### compute evidence with bootstraping
-        log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
-        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))])  for _ in range(100)])
+        # log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
+        # dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))])  for _ in range(100)])
         
-        errors.append(dlogz_piece)
-        
-    # particle from different steps are correlated, so this naive sum is an underestimation.
-    # Here I correct the error estimate by a factor sqrt(log(N_steps))
-    # Here a possible reference for this correction
+        # errors.append(dlogz_piece)#*(1+len(result_dict[key]['log_weights'])/ess))
 
-    logz, dlogz  = log_evidence, np.sqrt((np.sum(errors))*np.log(len(result_dict.keys())))
+        #delta methods
+        weights = jnp.exp(result_dict[key]['log_weights'].copy()-np.max(result_dict[key]['log_weights']))
+        dlogz_piece       = np.var(weights) /((np.mean(weights))**2*len(weights))*(1 +ess/len(weights))
+        errors.append(dlogz_piece)
+
+    
+    
+    logz, dlogz  = log_evidence, np.sqrt(np.sum((errors)))
+  
 
     return logz, dlogz
+
+
+
 
 
 
@@ -230,6 +243,7 @@ def run_smc(log_likelihood,
             master_key,
             folder = ".",
             label = "run",
+            initial_particles = "prior",
             initial_logZ = 0.0,
             initial_dlogZ = 0.0
             ):
@@ -238,8 +252,6 @@ def run_smc(log_likelihood,
 
     if not os.path.exists(folder):
         os.makedirs(folder)
-
-
 
     #Define the log-posterior
     def log_posterior(params, beta=1):
@@ -257,12 +269,16 @@ def run_smc(log_likelihood,
     smc_dict                    = {}        
 
     #Generate initial particles from the prior
-    initial_position = jax.random.uniform(
-                                        jax.random.PRNGKey(1),
-                                        shape=(number_of_particles, len(prior_bounds)),
-                                        minval=prior_bounds[:, 0],
-                                        maxval=prior_bounds[:, 1]
-                                        )
+    if initial_particles == "prior":
+        initial_position = jax.random.uniform(
+                                            jax.random.PRNGKey(1),
+                                            shape=(number_of_particles, len(prior_bounds)),
+                                            minval=prior_bounds[:, 0],
+                                            maxval=prior_bounds[:, 1]
+                                            )
+    else:
+        initial_position = initial_particles
+        
     
     
     #initialize SMC
@@ -306,8 +322,6 @@ def run_smc(log_likelihood,
         smc_dict[step]["ess"]               = float(ess)
         smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
         smc_dict[step]['beta']              = float(beta_next)
-        # smc_dict[step]['logZ']              = float(logZ)
-        # smc_dict[step]['dlogZ']             = float(dlogZ)
         beta_prev                           = beta_next
         step                               += 1
         print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)

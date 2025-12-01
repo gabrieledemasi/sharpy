@@ -35,10 +35,16 @@ import jax.numpy as jnp
 
 
 def eggbox(params):
-    tmax = 5.0 * jnp.pi
+    
 
     x = params
     def _eggbox(x):
-        t = 2.0 * tmax * x - tmax
-        return (2.0 + jnp.cos(t[0] / 2.0) * jnp.cos(t[1] / 2.0)) ** 5.0
+        
+        return (2.0 + jnp.cos(x[0]/2) * jnp.cos(x[1]/2)) ** 5.0
     return _eggbox(x)
+
+
+
+
+
+
