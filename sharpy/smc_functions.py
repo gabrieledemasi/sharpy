@@ -152,21 +152,34 @@ def compute_evidence(result_dict):
     log_evidence = 0.0
     errors       = []
     
+    log_weight_list = [result_dict[key]['log_weights'] for key in result_dict.keys()]
+    print(log_weight_list[0][0])
+    
 
     for key in result_dict.keys():
         
         log_evidence_piece = logsumexp(result_dict[key]['log_weights']) - np.log(len(result_dict[key]['log_weights']))
+
+        ess = result_dict[key]['ess']
+        
         
         log_evidence      += log_evidence_piece
 
         ### compute evidence with bootstraping
-        log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
-        dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))]) - len(log_boot_weights) for _ in range(100)])
-
-        errors.append(dlogz_piece)
+        # log_boot_weights   = jnp.array(result_dict[key]['log_weights'])
+        # dlogz_piece        = np.var([logsumexp(log_boot_weights[np.random.choice(len(log_boot_weights), len(log_boot_weights))])  for _ in range(100)])
         
+        # errors.append(dlogz_piece)#*(1+len(result_dict[key]['log_weights'])/ess))
+
+        #delta methods
+        weights = jnp.exp(result_dict[key]['log_weights'].copy()-np.max(result_dict[key]['log_weights']))
+        dlogz_piece       = np.var(weights) /((np.mean(weights))**2*len(weights))*(1 +ess/len(weights))
+        errors.append(dlogz_piece)
+
     
-    logz, dlogz  = log_evidence, np.sqrt(np.sum(np.cumsum(errors)))
+    
+    logz, dlogz  = log_evidence, np.sqrt(np.sum((errors)))
+  
 
     return logz, dlogz
 
@@ -250,7 +263,7 @@ def run_smc(log_likelihood,
 
         #Store SMC step results
         smc_dict[step]["samples"]           = np.array(samples).tolist()
-        smc_dict[step]["log_weights"]           = np.array(log_weights).tolist()
+        smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
         smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
         smc_dict[step]['beta']              = float(beta)
@@ -268,8 +281,8 @@ def run_smc(log_likelihood,
     result_dict["dlogZ"]    = float(dlogZ)
     result_dict['posterior_samples'] = posterior_samples.tolist()
 
-    with open(f"{folder}/{label}_result.json", "w") as f:
-        json.dump(result_dict, f)
+    # with open(f"{folder}/{label}_result.json", "w") as f:
+    #     json.dump(result_dict, f)
     
     return result_dict
 
