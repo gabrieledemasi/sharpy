@@ -262,17 +262,17 @@ class GWNetwork:
 
                
         self.detectors = [GWDetector(name, 
-                                     channel          = self.detectors_settings[name]['channel'] if 'channel' in self.detectors_settings[name] else None,
-                                     psd_file         = self.detectors_settings[name]['psd_file'] if 'psd_file' in self.detectors_settings[name] else None,
-                                     datafile         = self.detectors_settings[name]['data_file'] if 'data_file' in self.detectors_settings[name] else None,
-                                     T                = self.detectors_settings[name]['duration'] if 'duration' in self.detectors_settings[name] else 2.0,
-                                     sampling_rate    = self.detectors_settings[name]['sampling_rate'] if 'sampling_rate' in self.detectors_settings[name] else 1024,
-                                     flow             = self.detectors_settings[name]['f_lower'] if 'f_lower' in self.detectors_settings[name] else 20.0,
-                                     fhigh            = self.detectors_settings[name]['f_upper'] if 'f_upper' in self.detectors_settings[name] else 512.0,
-                                     trigtime         = self.detectors_settings[name]['trigger_time'] if 'trigger_time' in self.detectors_settings[name] else 1126259462.4,
-                                     download_data    = self.detectors_settings[name]['download_data'] if 'download_data' in self.detectors_settings[name] else False, 
-                                     datalen_download = self.detectors_settings[name]['datalen_download'] if 'datalen_download' in self.detectors_settings[name] else 32, 
-                                     zero_noise       = self.detectors_settings[name]['zero_noise'] if 'zero_noise' in self.detectors_settings[name] else False,
+                                    channel          = self.detectors_settings[name]['channel'] if 'channel' in self.detectors_settings[name] else None, 
+                                    psd_file         = self.detectors_settings[name]['psd_file'] if 'psd_file' in self.detectors_settings[name] else None,
+                                    datafile         = self.detectors_settings[name]['data_file'] if 'data_file' in self.detectors_settings[name] else None,
+                                    T                = self.detectors_settings[name]['duration'] if 'duration' in self.detectors_settings[name] else 2.0,
+                                    sampling_rate    = self.detectors_settings[name]['sampling_rate'] if 'sampling_rate' in self.detectors_settings[name] else 1024,
+                                    flow             = self.detectors_settings[name]['f_lower'] if 'f_lowr' in self.detectors_settings[name] else 20.0,
+                                    fhigh            = self.detectors_settings[name]['f_upper'] if 'f_high' in self.detectors_settings[name] else 512.0,
+                                    trigtime         = self.detectors_settings[name]['trigger_time'] if 'trigger_time' in self.detectors_settings[name] else 1126259462.4,
+                                    download_data    = self.detectors_settings[name]['download_data'] if 'download_data' in self.detectors_settings[name] else False, 
+                                    datalen_download = self.detectors_settings[name]['datalen_download'] if 'datalen_download' in self.detectors_settings[name] else 32, 
+                                    zero_noise       = self.detectors_settings[name]['zero_noise'] if 'zero_noise' in self.detectors_settings[name] else False,
 
                                           ).__dict__ for name in detector_names
                         ]

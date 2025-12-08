@@ -39,6 +39,9 @@ detector_settings = {
         "L1": {
             "psd_file"  : psd, 
         },
+        "V1": {
+            "psd_file"  : psd,
+        }
             
         
 
@@ -50,7 +53,7 @@ detector_settings = {
 from sharpy.GW_likelihood import GWNetwork, log_likelihood_det
 
 
-truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -1, 1.])
+truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -0.1, 0.1])
 from sharpy.GW_likelihood import GWNetwork, log_likelihood_det
 
 gw_network = GWNetwork(detector_settings,
@@ -68,8 +71,9 @@ prior_bounds            = jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]) #1: periodic, 0: reflective
 
 
-number_of_particles     = 9000
+number_of_particles     = 5000
 step_size               = 0.2
+alpha                   = 0.8
 
 
 temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([1e-4]),jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
@@ -91,14 +95,19 @@ start     = time.time()
 
 
 
-result_dict = run_smc(log_likelihood,
-                                                prior,
-                                                prior_bounds,
-                                                boundary_conditions,
-                                                temperature_schedule,
-                                                number_of_particles,
-                                                step_size,
-                                                master_key=jax.random.PRNGKey(jnp.array(id)),
+result_dict = run_smc(log_likelihood, 
+                    prior, 
+                    prior_bounds,
+                    boundary_conditions, 
+                    alpha,
+                    number_of_particles, 
+                    step_size,   
+                    jax.random.PRNGKey(42),
+                    folder = ".",
+                    label = "run",
+                    initial_logZ = 0.0,
+                    initial_dlogZ = 0.0,
+
                                             
                                                 )
 

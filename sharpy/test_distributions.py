@@ -29,3 +29,22 @@ def bimodal_gaussian_mixture(mean_1, mean_2, sigma, weight = 0.5, dimensions = 1
     return _bimodal_gaussian_mixture
 
 
+
+import jax.numpy as jnp
+
+
+
+def eggbox(params):
+    
+
+    x = params
+    def _eggbox(x):
+        
+        return (2.0 + jnp.cos(x[0]/2) * jnp.cos(x[1]/2)) ** 5.0
+    return _eggbox(x)
+
+
+
+
+
+

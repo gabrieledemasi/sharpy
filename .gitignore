@@ -5,6 +5,7 @@
 !pyproject.toml
 !README.md
 !.gitignore
+!Examples/
 !Examples/*.py
 
 

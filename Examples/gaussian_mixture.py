@@ -13,7 +13,7 @@ import time
 import json
 from jax.scipy.special import logsumexp
 import numpy as np
-from sharpy.smc_functions import run_smc
+from sharpy.smc_functions import  run_smc
 
 
 
@@ -31,13 +31,7 @@ def prior(params):
 
 
 
-prior_bounds            = jnp.array([[-5, 5] for _ in range(10)])
-boundary_conditions     = jnp.array([0 for _ in range(10)])
-number_of_particles     = 9000
-step_size               = 0.2
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([1e-4]),jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
-folder                  = f"Gaussian_mixture_example"
-label                   = f"sharpy_run"
+
 
 
 
@@ -47,7 +41,18 @@ start     = time.time()
 
 #Define the Gaussian Mixture Log-Likelihood
 from sharpy.test_distributions import bimodal_gaussian_mixture
-log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weight=0.5, dimensions=10)
+dimensions = 30
+log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weight=0.5, dimensions=dimensions)
+
+
+prior_bounds            = jnp.array([[-5, 5] for _ in range(dimensions)])
+boundary_conditions     = jnp.array([0 for _ in range(dimensions)])
+number_of_particles     = 2000
+step_size               = 0.2
+alpha                   = 0.9
+folder                  = f"Gaussian_mixture_example_narrow"
+label                   = f"sharpy_run"
+
 
 
 
@@ -56,10 +61,10 @@ result_dict     = run_smc(  log_likelihood,
                             prior,
                             prior_bounds,
                             boundary_conditions,
-                            temperature_schedule,
+                            alpha,
                             number_of_particles,
                             step_size,
-                            master_key=jax.random.PRNGKey(jnp.array(0)),
+                            master_key=jax.random.PRNGKey(jnp.array(2)),
                             folder = folder,
                                                 )
 
