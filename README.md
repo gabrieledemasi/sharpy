@@ -1,5 +1,6 @@
 # SHARPy
-## Sequential HAmiltonian Riemann montecarlo Python sampler for <em>cutting-edge</em> Gravitational Wave parameter estimation 
+## Sequential HAmiltonian Riemann montecarlo Python sampler for <em>cutting-edge</em> Gravitational Wave inference
+© 2025-  Gabriele Demasi, Walter Del Pozzo
 
 ### Installation 
 For avoiding package incompatibilities, create a dedicated conda environment  
@@ -17,3 +18,6 @@ then install SHARPy:<br>
 
 To run on GPU please install this version of JAX:
 `pip install --upgrade "jax[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html`
+
+## Acknowledgements
+-
