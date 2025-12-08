@@ -33,7 +33,7 @@ dependencies = [
                 "astropy",
                 "flax",
                 "blackjax @ git+https://github.com/gabrieledemasi/blackjax@main",
-                "NetKet==3.19.2",
+                "NetKet==3.20.5",
                 "jax",
                 "corner",
 

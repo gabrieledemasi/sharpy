@@ -341,8 +341,8 @@ def run_smc(log_likelihood,
     result_dict["dlogZ"]    = float(dlogZ)
     result_dict['posterior_samples'] = posterior_samples.tolist()
 
-    with open(f"{folder}/{label}_result.json", "w") as f:
-        json.dump(result_dict, f)
+    # with open(f"{folder}/{label}_result.json", "w") as f:
+    #     json.dump(result_dict, f)
     
     return result_dict
 

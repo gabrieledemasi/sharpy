@@ -276,7 +276,9 @@ class GWNetwork:
 
                                           ).__dict__ for name in detector_names
                         ]
-        
+
+
+                  
         return self.detectors
     
     def construct_batched_detectors(self):
