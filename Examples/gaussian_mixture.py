@@ -2,38 +2,11 @@
 import os
 import jax
 import jax.numpy as jnp
-
-
 import matplotlib.pyplot as plt
-from functools import partial 
-from jax import random, lax
-import blackjax
-from functools import partial
 import time 
-import json
 from jax.scipy.special import logsumexp
 import numpy as np
 from sharpy.smc_functions import  run_smc
-
-
-
-
-
-   
-def prior(params):
-    return 0.
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 start     = time.time()
@@ -41,15 +14,19 @@ start     = time.time()
 
 #Define the Gaussian Mixture Log-Likelihood
 from sharpy.test_distributions import bimodal_gaussian_mixture
-dimensions = 30
-log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.1, weight=0.5, dimensions=dimensions)
+dimensions = 11
+
+
+def prior(params):
+    return 0.
+log_likelihood = bimodal_gaussian_mixture(mean_1=-1., mean_2=1., sigma=0.01, weight=0.5, dimensions=dimensions)
 
 
 prior_bounds            = jnp.array([[-5, 5] for _ in range(dimensions)])
 boundary_conditions     = jnp.array([0 for _ in range(dimensions)])
-number_of_particles     = 2000
-step_size               = 0.2
-alpha                   = 0.9
+number_of_particles     = 9000
+step_size               = 0.3
+alpha                   = 0.95
 folder                  = f"Gaussian_mixture_example_narrow"
 label                   = f"sharpy_run"
 

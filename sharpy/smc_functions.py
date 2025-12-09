@@ -38,7 +38,7 @@ def build_kernel_fn(kernel, log_posterior, step_size):
 
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
-        return kernel(rng_key, state, logdensity_fn, step_size, metric)
+        return kernel(rng_key, state, logdensity_fn, step_size, metric, max_number_doublings=6)
     # JIT-compile the batched kernel function
     batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
     return batched_kernel
@@ -154,8 +154,7 @@ def compute_evidence(result_dict):
     log_evidence = 0.0
     errors       = []
     
-    log_weight_list = [result_dict[key]['log_weights'] for key in result_dict.keys()]
-    print(log_weight_list[0][0])
+    
     
 
     for key in result_dict.keys():
@@ -200,7 +199,6 @@ def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
             beta_next = beta_upper
             break
         beta_next = (beta_lower + beta_upper) / 2.0
-        # print("Searching for next beta between {} and {}, current guess: {}".format(beta_lower, beta_upper, beta_next))
         ess_diff = compute_weight_and_ess(samples, beta_upper, beta_prev)[1] - ess_target
         if ess_diff > 0:
             beta_lower = beta_next
@@ -211,25 +209,6 @@ def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
 
 
 
-# def compute_logZ(log_weights, ess , previous_logZ=0.0, previous_dlogZ=0.0,):
-#     logZ               = jax.scipy.special.logsumexp(log_weights) - jnp.log(len(log_weights))
-
-#     # dlogz_piece        = np.var([logsumexp(log_weights[np.random.choice(len(log_weights), len(log_weights))]) - len(log_weights) for _ in range(1000)])
-#     epsilon            = ess/len(log_weights)
-#     dlogz_piece        = np.sqrt((1.0 - epsilon) / (epsilon * len(log_weights)))
-#     print("dlogz_piece =", dlogz_piece)
-
-#     st                 = np.sum((jnp.exp(log_weights) - jnp.exp(logZ))**2)/(len(log_weights) -1)
-#     var_logZ           = st / (len(log_weights)) / jnp.exp( logZ)**2
-#     # dlogZ              = np.sqrt(previous_dlogZ**2 + np.log(len(log_weights))*dlogz_piece**2)
-#     dlogZ             = np.sqrt(previous_dlogZ**2 + var_logZ )
-#     logZ              += previous_logZ
-
-
-
-
-
-    # return logZ, dlogZ
 
 
 
@@ -292,8 +271,6 @@ def run_smc(log_likelihood,
     beta_next       = initial_beta
     step            = 0
 
-    previous_logZ    = initial_logZ
-    previous_dlogZ   = initial_dlogZ
 
     
     #SMC main loop
@@ -308,13 +285,10 @@ def run_smc(log_likelihood,
 
         #Do a SMC step
         samples, log_weights, ess   = step_for(samples, beta_next, beta_prev,weights, resampling_key, mutation_key)
-        # logZ, dlogZ                 = compute_logZ(log_weights,  ess, previous_logZ, previous_dlogZ,)
-        # previous_logZ               = logZ
-        # previous_dlogZ              = dlogZ
-        # print("ess = {}".format(ess))
+      
         if jnp.isnan(ess):
             print("ESS is NaN, stopping SMC.")
-            break
+            return -1
 
         #Store SMC step results
         smc_dict[step]["samples"]           = np.array(samples).tolist()

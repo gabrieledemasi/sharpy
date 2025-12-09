@@ -2,23 +2,13 @@
 import os
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 from functools import partial 
-from jax import random, lax
-import blackjax
 from functools import partial
 import time 
-import json
 from jax.scipy.special import logsumexp
 import numpy as np
 import sharpy
 import sharpy.PSDs
-
-
-
-
-
-
 folder = "GW_injection_example"
  
 id = 0
@@ -52,7 +42,7 @@ detector_settings = {
 
 from sharpy.GW_likelihood import GWNetwork, log_likelihood_det
 
-
+# ra, dec, logdistance, theta_jn, phiref, pol, mc, q, tc, chi1, chi2
 truth =  jnp.array([3.0, 1.0, 5.5, jnp.pi/2, jnp.pi, jnp.pi/2, 30.0, 0.7, 0.0, -0.1, 0.1])
 from sharpy.GW_likelihood import GWNetwork, log_likelihood_det
 
@@ -66,17 +56,17 @@ log_likelihood   = partial(log_likelihood_det, detector_list=batched_detector)
 
 
 
+# ra, dec, logdistance, theta_jn, phiref, pol, mc, q, tc, chi1, chi2
 
 prior_bounds            = jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9, 8.7], [0., jnp.pi], [0., 2*jnp.pi], [0., jnp.pi], [25, 35], [0.4, 1.], [-1e-1, 1e-1], [-1., 1.], [-1., 1.]])
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]) #1: periodic, 0: reflective
 
 
-number_of_particles     = 5000
-step_size               = 0.2
-alpha                   = 0.8
+number_of_particles     = 9000
+step_size               = 0.3
+alpha                   = 0.95
 
 
-temperature_schedule    = jnp.concatenate((jnp.array([1e-5]),  jnp.array([1e-4]),jnp.array([1e-3]), jnp.array([5e-3]), jnp.logspace(-2, 0, 30),))
 
 parameters_names        =  ['ra','dec','logdistance','theta_jn','phiref','pol', 'mc','q', 'tc', 'chi1', 'chi2']
 
@@ -127,10 +117,6 @@ fig = corner(np.array(samples),
             title_kwargs   = {"fontsize": 12},)
 
 fig.savefig(f"{folder}/{label}_corner.png")
-
-
-
-# print(particles.shape)
 
 
 sampling_time = time.time()-start

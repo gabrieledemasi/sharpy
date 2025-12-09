@@ -19,7 +19,7 @@ def softabs_lambda(lambdas, alpha):
     return lambdas / jnp.tanh(alpha * lambdas)
 
 
-def softabs_metric(H, alpha = 1e-2):
+def softabs_metric(H, alpha = 5e-3):
     """
     Compute the SoftAbs metric tensor given a potential energy function U.
     
