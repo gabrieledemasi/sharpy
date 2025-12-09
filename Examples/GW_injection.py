@@ -77,7 +77,7 @@ label                   = f"run_{id}"
 if not os.path.exists(folder):
     os.makedirs(folder)
 
-from sharpy.smc_functions import run_smc
+from sharpy.smc_functions import run_sharpy
 
 start     = time.time()
 
