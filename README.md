@@ -1,5 +1,5 @@
 # SHARPy
-## Sequential HAmiltonian Riemann montecarlo Python sampler for <em>cutting-edge</em> Gravitational Wave inference
+### Sequential HAmiltonian Riemann montecarlo Python sampler for <em>cutting-edge</em> Gravitational Wave inference
 © 2025-  Gabriele Demasi, Walter Del Pozzo
 
 ### Installation 
