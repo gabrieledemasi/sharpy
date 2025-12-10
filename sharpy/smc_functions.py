@@ -38,7 +38,7 @@ def build_kernel_fn(kernel, log_posterior, step_size):
 
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
-        return kernel(rng_key, state, logdensity_fn, step_size, metric, max_number_doublings=6)
+        return kernel(rng_key, state, logdensity_fn, step_size, metric, max_num_doublings=6)
     # JIT-compile the batched kernel function
     batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
     return batched_kernel

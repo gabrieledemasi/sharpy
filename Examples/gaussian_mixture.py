@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import time 
 from jax.scipy.special import logsumexp
 import numpy as np
-from sharpy.smc_functions import  run_smc
+from sharpy.smc_functions import run_sharpy
 
 
 start     = time.time()
@@ -34,7 +34,7 @@ label                   = f"sharpy_run"
 
 
 #Run Sharpy
-result_dict     = run_smc(  log_likelihood,
+result_dict     = run_sharpy(  log_likelihood,
                             prior,
                             prior_bounds,
                             boundary_conditions,

@@ -425,7 +425,10 @@ def _ab_factors(g_, lat, ra, dec, lst):
 
 
     return a_, b_
+
+
 ###DO NOT USE THIS FUNCTION ANYMORE
+###Only for testing purposes
 def TaylorF2(params, frequency_array):
 
     Mc, q, phi_c, logdistance, cos_iota= params[6], params[7], params[4], params[2], params[3]
