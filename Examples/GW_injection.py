@@ -85,7 +85,7 @@ start     = time.time()
 
 
 
-result_dict = run_smc(log_likelihood, 
+result_dict = run_sharpy(log_likelihood, 
                     prior, 
                     prior_bounds,
                     boundary_conditions, 
@@ -95,8 +95,6 @@ result_dict = run_smc(log_likelihood,
                     jax.random.PRNGKey(42),
                     folder = ".",
                     label = "run",
-                    initial_logZ = 0.0,
-                    initial_dlogZ = 0.0,
 
                                             
                                                 )
