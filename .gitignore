@@ -6,6 +6,7 @@
 !README.md
 !.gitignore
 !Examples/
-!Examples/*.py
+!Examples/*.py 
+!Examples/*.ipynb
 
 
