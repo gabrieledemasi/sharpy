@@ -19,5 +19,8 @@ then install SHARPy:<br>
 To run on GPU please install this version of JAX:
 `pip install --upgrade "jax[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html`
 
+## Examples
+This [notebook](Examples/11D_gaussian_mixture.ipynb) contains a simple test case( a 11D bimodal gaussian mixture) that can be run on a laptop. The run time should be around 1 min, depending on the hardware.
+
 ## Acknowledgements
 -
