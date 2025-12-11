@@ -303,9 +303,9 @@ def run_sharpy(log_likelihood,
 
     #compute evidence and draw iid samples using rejection sampling
     posterior_samples       = draw_iid_samples(smc_dict)
-    print("the number of samples after rejection sampling is:", len(posterior_samples))
+    # print("the number of samples after rejection sampling is:", len(posterior_samples))
     logZ, dlogZ             = compute_evidence(smc_dict)
-    print("logZ = {}, dlogZ = {}".format(logZ, dlogZ))
+    # print("logZ = {}, dlogZ = {}".format(logZ, dlogZ))
 
 
     #save results
@@ -315,8 +315,8 @@ def run_sharpy(log_likelihood,
     result_dict["dlogZ"]    = float(dlogZ)
     result_dict['posterior_samples'] = posterior_samples.tolist()
 
-    # with open(f"{folder}/{label}_result.json", "w") as f:
-    #     json.dump(result_dict, f)
+    with open(f"{folder}/{label}_result.json", "w") as f:
+        json.dump(result_dict, f)
     
     return result_dict
 
