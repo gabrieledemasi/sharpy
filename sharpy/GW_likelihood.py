@@ -308,19 +308,20 @@ def project_waveform(params, detector_dictionary):
 
 
 
-    latitude = detector_dictionary.latitude
-    longitude = detector_dictionary.longitude
-    gamma     = detector_dictionary.gamma
-    zeta      = detector_dictionary.zeta
-    elevation = detector_dictionary.elevation
+    latitude        = detector_dictionary.latitude
+    longitude       = detector_dictionary.longitude
+    gamma           = detector_dictionary.gamma
+    zeta            = detector_dictionary.zeta
+    elevation       = detector_dictionary.elevation
+    trigger_time    = detector_dictionary.trigtime
 
     
-    fplus, fcross   = antenna_pattern_functions(params, latitude, longitude, gamma, zeta)
+    fplus, fcross   = antenna_pattern_functions(params, latitude, longitude, gamma, zeta, trigger_time)
 
 
     ra = params[0]
     dec = params[1]
-    tc  = detector_dictionary.trigtime + params[8]
+    tc  = trigger_time + params[8]
 
     timedelay       = TimeDelayFromEarthCenter(latitude, longitude, elevation, ra, dec, tc)
     
@@ -334,7 +335,7 @@ def project_waveform(params, detector_dictionary):
     return h
 
 
-def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, det_zeta):
+def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, det_zeta, trigger_time):
     '''
     #    default_names = ['phiref','ra','dec','tc','mc','q','costheta_jn','psi','logdistance']
     Evaluate the antenna pattern functions.
@@ -360,7 +361,7 @@ def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, de
 
     pol = params[5]
     
-    tc  = np.float64(1126259462.4) + params[8]
+    tc  = trigger_time + params[8]
     lat = jnp.radians(det_latitute)
     g_ = jnp.radians(det_gamma)
     z_ = jnp.radians(det_zeta)
