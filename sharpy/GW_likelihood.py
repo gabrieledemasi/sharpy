@@ -32,15 +32,16 @@ from enum import IntEnum
 
 PARAM_NAMES_D = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2']
 
-PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc', 's1x','s1y','s1z','s2x','s2y','s2z']  
+#PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','s1x','s1y','s1z','s2x','s2y','s2z']  
+PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','a1','cost1','phi1','a2','cost2','phi2']
 
-class P_D(IntEnum):
+class PARAM_D(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; CHI1=9; CHI2=10
 
-class P_PV2(IntEnum):
-    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; S1X=9; S1Y=10; S1Z=11; S2X=12; S2Y=13; S2Z=14
+class PARAM_PV2(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; A1=9; COST1=10; PHI1=11; A2=12; COST2=13; PHI2=14
 
-class P_COMMON(IntEnum):
+class PARAM_COMMON(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
 
 N_PARAMS_D = 11
@@ -341,14 +342,14 @@ def project_waveform(params, detector_dictionary):
     fplus, fcross   = antenna_pattern_functions(params, latitude, longitude, gamma, zeta, trigger_time)
 
 
-    ra = params[P_COMMON.RA]
-    dec = params[P_COMMON.DEC]
-    tc  = trigger_time + params[P_COMMON.TC]
+    ra = params[PARAM_COMMON.RA]
+    dec = params[PARAM_COMMON.DEC]
+    tc  = trigger_time + params[PARAM_COMMON.TC]
 
     timedelay       = TimeDelayFromEarthCenter(latitude, longitude, elevation, ra, dec, tc)
     
     timeshift       = timedelay
-    timeshift       = timeshift + (params[P_COMMON.TC] + (detector_dictionary.T - 1) )
+    timeshift       = timeshift + (params[PARAM_COMMON.TC] + (detector_dictionary.T - 1) )
     
     shift           = 2.0*np.pi*f*timeshift
 
@@ -378,12 +379,12 @@ def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, de
         fplus and fcross.
     '''
 
-    ra = params[P_COMMON.RA]
-    dec = params[P_COMMON.DEC]
+    ra = params[PARAM_COMMON.RA]
+    dec = params[PARAM_COMMON.DEC]
 
-    pol = params[P_COMMON.POL]
+    pol = params[PARAM_COMMON.POL]
     
-    tc  = trigger_time + params[P_COMMON.TC]
+    tc  = trigger_time + params[PARAM_COMMON.TC]
     lat = jnp.radians(det_latitute)
     g_ = jnp.radians(det_gamma)
     z_ = jnp.radians(det_zeta)
@@ -517,15 +518,15 @@ def TaylorF2(params, frequency_array):
 
 # @jax.jit
 def template_aligned(params, frequency_array):
-    mc                      = params[P_D.MC]
-    q                       = params[P_D.Q]
+    mc                      = params[PARAM_D.MC]
+    q                       = params[PARAM_D.Q]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
-    chi1                    = params[P_D.CHI1] # Dimensionless spin
-    chi2                    = params[P_D.CHI2]
+    chi1                    = params[PARAM_D.CHI1] # Dimensionless spin
+    chi2                    = params[PARAM_D.CHI2]
     tc                      = 0.0 # Time of coalescence in seconds (set to 0 since the shift is already computed outside)
-    phic                    = params[P_D.PHIREF] # Phase of coalescence (pay attention to the name... phic and phiref are different but in IMRPhenomD shouldn't be relevant)
-    dist_mpc                = jnp.exp(params[P_D.LOGDIST]) # Distance to source in Mpc
-    inclination             = params[P_D.THETA_JN]# Inclination Angle
+    phic                    = params[PARAM_D.PHIREF] # Phase of coalescence (pay attention to the name... phic and phiref are different but in IMRPhenomD shouldn't be relevant)
+    dist_mpc                = jnp.exp(params[PARAM_D.LOGDIST]) # Distance to source in Mpc
+    inclination             = params[PARAM_D.THETA_JN]# Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
     Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
@@ -539,20 +540,31 @@ def template_aligned(params, frequency_array):
 
 
 
+def spherical_to_cart(a, cost, phi):
+    cost = jnp.clip(cost, -1.0, 1.0)
+    sint = jnp.sqrt(jnp.maximum(0.0, 1.0 - cost*cost))
+    sx = a * sint * jnp.cos(phi)
+    sy = a * sint * jnp.sin(phi)
+    sz = a * cost
+    return sx, sy, sz
 
-# @jax.jit
 def template_precessing(params, frequency_array):
-    mc                     = params[P_PV2.MC]
-    q                       = params[P_PV2.Q]
-    m1_msun, m2_msun        = McQ2Masses(mc, q)
-    s1x,s1y,s1z             = params[P_PV2.S1X], params[P_PV2.S1Y], params[P_PV2.S1Z]  
-    s2x,s2y,s2z             = params[P_PV2.S2X], params[P_PV2.S2Y], params[P_PV2.S2Z] 
-    tc                      = 0.0 
-    phi_ref                 = params[P_PV2.PHIREF] # Phase at reference frequency 
-    dist_mpc                = jnp.exp(params[P_PV2.LOGDIST]) # Distance to source in Mpc
-    inclination             = params[P_PV2.THETA_JN]# Inclination Angle
+    mc                  = params[PARAM_PV2.MC]
+    q                   = params[PARAM_PV2.Q]
+    m1_msun, m2_msun    = McQ2Masses(mc, q)
+    Mc, eta             = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
 
-    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+    a1, c1, p1          = params[PARAM_PV2.A1], params[PARAM_PV2.COST1], params[PARAM_PV2.PHI1]
+    a2, c2, p2          = params[PARAM_PV2.A2], params[PARAM_PV2.COST2], params[PARAM_PV2.PHI2]
+    s1x,s1y,s1z         = spherical_to_cart(a1, c1, p1)
+    s2x,s2y,s2z         = spherical_to_cart(a2, c2, p2) 
+
+    tc                  = 0.0 
+    phi_ref             = params[PARAM_PV2.PHIREF] # Phase at reference frequency 
+    dist_mpc            = jnp.exp(params[PARAM_PV2.LOGDIST]) 
+    inclination         = params[PARAM_PV2.THETA_JN]
+
+    
 
     theta_ripple      = jnp.array([Mc, eta, s1x, s1y, s1z, s2x, s2y, s2z, dist_mpc, tc, phi_ref, inclination])
 
@@ -581,11 +593,10 @@ def template(params, frequency_array):
 
 
 
+
+
+
 ######Likelihood 
-
-
-
-
 
 
 
