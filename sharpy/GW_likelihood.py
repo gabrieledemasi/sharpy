@@ -12,7 +12,7 @@ from sharpy.noise import load_data, generate_data
 
 jax.config.update("jax_enable_x64", True) 
 
-from ripplegw.waveforms import IMRPhenomD
+from ripplegw.waveforms import IMRPhenomD, IMRPhenomPv2
 from ripplegw import ms_to_Mc_eta
 
 import sys
@@ -23,6 +23,28 @@ M_sun = const.M_sun.value
 G = const.G.value
 c = const.c.value
 pc = const.pc.value
+
+
+
+
+from enum import IntEnum
+
+
+PARAM_NAMES_D = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2']
+
+PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc', 's1x','s1y','s1z','s2x','s2y','s2z']  
+
+class P_D(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; CHI1=9; CHI2=10
+
+class P_PV2(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; S1X=9; S1Y=10; S1Z=11; S2X=12; S2Y=13; S2Z=14
+
+class P_COMMON(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
+
+N_PARAMS_D = 11
+N_PARAMS_PV2 = 15
 
 
 
@@ -319,14 +341,14 @@ def project_waveform(params, detector_dictionary):
     fplus, fcross   = antenna_pattern_functions(params, latitude, longitude, gamma, zeta, trigger_time)
 
 
-    ra = params[0]
-    dec = params[1]
-    tc  = trigger_time + params[8]
+    ra = params[P_COMMON.RA]
+    dec = params[P_COMMON.DEC]
+    tc  = trigger_time + params[P_COMMON.TC]
 
     timedelay       = TimeDelayFromEarthCenter(latitude, longitude, elevation, ra, dec, tc)
     
     timeshift       = timedelay
-    timeshift       = timeshift + (params[8] + (detector_dictionary.T - 1) )
+    timeshift       = timeshift + (params[P_COMMON.TC] + (detector_dictionary.T - 1) )
     
     shift           = 2.0*np.pi*f*timeshift
 
@@ -356,12 +378,12 @@ def antenna_pattern_functions(params, det_latitute, det_longitude, det_gamma, de
         fplus and fcross.
     '''
 
-    ra = params[0]
-    dec = params[1]
+    ra = params[P_COMMON.RA]
+    dec = params[P_COMMON.DEC]
 
-    pol = params[5]
+    pol = params[P_COMMON.POL]
     
-    tc  = trigger_time + params[8]
+    tc  = trigger_time + params[P_COMMON.TC]
     lat = jnp.radians(det_latitute)
     g_ = jnp.radians(det_gamma)
     z_ = jnp.radians(det_zeta)
@@ -494,16 +516,16 @@ def TaylorF2(params, frequency_array):
 
 
 # @jax.jit
-def template(params, frequency_array):
-    mc                      = params[6]
-    q                       = params[7]
+def template_aligned(params, frequency_array):
+    mc                      = params[P_D.MC]
+    q                       = params[P_D.Q]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
-    chi1                    = params[9] # Dimensionless spin
-    chi2                    = params[10]
-    tc                      = 0.0 # Time of coalescence in seconds
-    phic                    = params[4] # Phase of coalescence
-    dist_mpc                = jnp.exp(params[2]) # Distance to source in Mpc
-    inclination             = params[3] # Inclination Angle
+    chi1                    = params[P_D.CHI1] # Dimensionless spin
+    chi2                    = params[P_D.CHI2]
+    tc                      = 0.0 # Time of coalescence in seconds (set to 0 since the shift is already computed outside)
+    phic                    = params[P_D.PHIREF] # Phase of coalescence (pay attention to the name... phic and phiref are different but in IMRPhenomD shouldn't be relevant)
+    dist_mpc                = jnp.exp(params[P_D.LOGDIST]) # Distance to source in Mpc
+    inclination             = params[P_D.THETA_JN]# Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
     Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
@@ -514,6 +536,44 @@ def template(params, frequency_array):
 
     # jax.debug.print("Max hp: {}, Max hc: {}", jnp.max(jnp.abs(hp)), jnp.max(jnp.abs(hc)))
     return hp, hc 
+
+
+
+
+# @jax.jit
+def template_precessing(params, frequency_array):
+    mc                     = params[P_PV2.MC]
+    q                       = params[P_PV2.Q]
+    m1_msun, m2_msun        = McQ2Masses(mc, q)
+    s1x,s1y,s1z             = params[P_PV2.S1X], params[P_PV2.S1Y], params[P_PV2.S1Z]  
+    s2x,s2y,s2z             = params[P_PV2.S2X], params[P_PV2.S2Y], params[P_PV2.S2Z] 
+    tc                      = 0.0 
+    phi_ref                 = params[P_PV2.PHIREF] # Phase at reference frequency 
+    dist_mpc                = jnp.exp(params[P_PV2.LOGDIST]) # Distance to source in Mpc
+    inclination             = params[P_PV2.THETA_JN]# Inclination Angle
+
+    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+
+    theta_ripple      = jnp.array([Mc, eta, s1x, s1y, s1z, s2x, s2y, s2z, dist_mpc, tc, phi_ref, inclination])
+
+    hp, hc            = jax.vmap(IMRPhenomPv2.gen_IMRPhenomPv2_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+
+    return hp, hc   
+
+
+def template(params, frequency_array):
+    # Phython wrapper, jit not needed
+    n = int(params.shape[-1])
+    if n == N_PARAMS_D:
+        return template_aligned(params, frequency_array)
+    elif n == N_PARAMS_PV2:
+        return template_precessing(params, frequency_array)
+    else:
+        raise ValueError(f"Bad params length: {n}. Expected {N_PARAMS_D} or {N_PARAMS_PV2}.")   
+
+
+
+
 
 
 
