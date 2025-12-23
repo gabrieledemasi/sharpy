@@ -12,8 +12,8 @@ from sharpy.noise import load_data, generate_data
 
 jax.config.update("jax_enable_x64", True) 
 
-from ripplegw.waveforms import IMRPhenomD, IMRPhenomPv2
-from ripplegw import ms_to_Mc_eta
+from ripplegw.waveforms import IMRPhenomD, IMRPhenomPv2, IMRPhenomXAS, IMRPhenomD_NRTidalv2, TaylorF2
+from ripplegw import ms_to_Mc_eta, lambdas_to_lambda_tildes
 
 import sys
 
@@ -24,10 +24,11 @@ G = const.G.value
 c = const.c.value
 pc = const.pc.value
 
-
-
-
 from enum import IntEnum
+
+
+
+# waveform parameters -------------------------------------------------------
 
 class PARAM_COMMON(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
@@ -47,6 +48,14 @@ class PARAM_PV2(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; A1=9; COST1=10; PHI1=11; A2=12; COST2=13; PHI2=14   
 
 
+# IMRPhenomD_NRTidalv2, TaylorF2
+PARAM_NAMES_T = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2','lambda1','lambda2']
+N_PARAMS_T = 13
+
+class PARAM_T(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; CHI1=9; CHI2=10; LAMBDA1=11; LAMBDA2=12       
+
+
 
 
 # waveform selection -------------------------------------------------------
@@ -55,6 +64,8 @@ class Waveform(IntEnum):
     IMRPHENOMD = 0
     IMRPHENOMXAS = 1
     IMRPHENOMPV2 = 2
+    IMRPHENOMD_NRTIDALV2 = 3
+    TAYLORF2 = 4
 
 _WAVEFORM_ALIASES = {
     "d": Waveform.IMRPHENOMD,
@@ -63,6 +74,10 @@ _WAVEFORM_ALIASES = {
     "imrphenomxas": Waveform.IMRPHENOMXAS,
     "pv2": Waveform.IMRPHENOMPV2,
     "imrphenompv2": Waveform.IMRPHENOMPV2,
+    "nrtv2": Waveform.IMRPHENOMD_NRTIDALV2,
+    "imrphenomd_nrtidalv2": Waveform.IMRPHENOMD_NRTIDALV2,
+    "tf2": Waveform.TAYLORF2,
+    "taylorf2": Waveform.TAYLORF2,
 }
 
 def _parse_waveform(waveform):
@@ -74,7 +89,7 @@ def _parse_waveform(waveform):
         key = waveform.strip().lower()
         if key in _WAVEFORM_ALIASES:
             return _WAVEFORM_ALIASES[key]
-    raise ValueError(f"Unknown waveform: {waveform!r}. Use 'imrphenomd', or 'imrphenompv2'.")
+    raise ValueError(f"Unknown waveform: {waveform!r}. Available waveforms: 'imrphenomd', 'imrphenomxas', 'imrphenompv2', 'imrphenomd_nrtidal', 'taylorf2'.")
 
 
 
@@ -351,11 +366,11 @@ class GWNetwork:
 
 
 
-def project_waveform(params, detector_dictionary, waveform="imrphenomd"):
+def project_waveform(params, detector_dictionary, waveform):
     
     f = detector_dictionary.Frequency
 
-    h_plus, h_cross = template(params, f)
+    h_plus, h_cross = template(params, f, waveform=waveform)
     # h_plus, h_cross   = TaylorF2(params, f)
 
 
@@ -586,7 +601,9 @@ def template_IMRPhenomXAS(params, frequency_array):
 
     hp, hc            = jax.vmap(IMRPhenomXAS.gen_IMRPhenomXAS_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
 
-    return hp, hc     
+    return hp, hc  
+    
+       
 
 
 
@@ -623,7 +640,58 @@ def template_IMRPhenomPv2(params, frequency_array):
     return hp, hc   
 
 
-def template(params, frequency_array, waveform='imrphenomd'):
+def template_IMRPhenomD_NRTidalv2(params, frequency_array):
+    mc                                  = params[PARAM_T.MC]
+    q                                   = params[PARAM_T.Q]
+    m1, m2                              = McQ2Masses(mc, q)
+    Mc, eta                             = ms_to_Mc_eta(jnp.array([m1, m2]))
+            
+    chi1                                = params[PARAM_T.CHI1] 
+    chi2                                = params[PARAM_T.CHI2]
+            
+    lambda1                             = params[PARAM_T.LAMBDA1] 
+    lambda2                             = params[PARAM_T.LAMBDA2] 
+    lambda_tilde, delta_lambda_tilde    = lambdas_to_lambda_tildes(jnp.array([lambda1, lambda2, m1, m2]))
+
+    tc                                  = 0.0        
+    phic                                = params[PARAM_T.PHIREF]     
+    dist_mpc                            = jnp.exp(params[PARAM_T.LOGDIST])      
+    inclination                         = params[PARAM_T.THETA_JN]
+
+
+    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, lambda_tilde, delta_lambda_tilde, dist_mpc, tc, phic, inclination])
+
+    hp, hc            = jax.vmap(IMRPhenomD_NRTidalv2.gen_IMRPhenomD_NRTidalv2_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+
+    return hp, hc   
+
+def template_TaylorF2(params, frequency_array):
+    mc                                  = params[PARAM_T.MC]
+    q                                   = params[PARAM_T.Q]
+    m1, m2                              = McQ2Masses(mc, q)
+    Mc, eta                             = ms_to_Mc_eta(jnp.array([m1, m2]))
+            
+    chi1                                = params[PARAM_T.CHI1] 
+    chi2                                = params[PARAM_T.CHI2]
+            
+    lambda1                             = params[PARAM_T.LAMBDA1] 
+    lambda2                             = params[PARAM_T.LAMBDA2] 
+    lambda_tilde, delta_lambda_tilde    = lambdas_to_lambda_tildes(jnp.array([lambda1, lambda2, m1, m2]))
+
+    tc                                  = 0.0        
+    phic                                = params[PARAM_T.PHIREF]    
+    dist_mpc                            = jnp.exp(params[PARAM_T.LOGDIST])      
+    inclination                         = params[PARAM_T.THETA_JN]
+
+
+    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, lambda_tilde, delta_lambda_tilde, dist_mpc, tc, phic, inclination])
+
+    hp, hc            = jax.vmap(TaylorF2.gen_TaylorF2_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+
+    return hp, hc       
+
+
+def template(params, frequency_array, waveform):
     # Phython wrapper, jit not needed
     wf = _parse_waveform(waveform)
 
@@ -644,11 +712,17 @@ def template(params, frequency_array, waveform='imrphenomd'):
             raise ValueError(f"Waveform IMRPhenomPv2 expects {N_PARAMS_PV2} params, got {n}.")
         return template_IMRPhenomPv2(params, frequency_array)
 
+    if wf == Waveform.IMRPHENOMD_NRTIDALV2:
+        if n != N_PARAMS_T:
+            raise ValueError(f"Waveform IMRPhenomD_NRTidalv2 expects {N_PARAMS_T} params, got {n}.")
+        return template_IMRPhenomD_NRTidalv2(params, frequency_array)   
+
+    if wf == Waveform.TAYLORF2:
+        if n != N_PARAMS_T:
+            raise ValueError(f"Waveform TaylorF2 expects {N_PARAMS_T} params, got {n}.")
+        return template_TaylorF2(params, frequency_array)      
+
     raise ValueError(f"Unhandled waveform enum: {wf}.") 
-
-
-
-
 
 
 
@@ -673,7 +747,7 @@ def log_likelihood_det(params, detector_list, waveform):
 
 
 
-def single_detector_log_likelihood(params, detector_dictionary, waveform="imrphenomd"):
+def single_detector_log_likelihood(params, detector_dictionary, waveform):
 
     h = project_waveform(params, detector_dictionary, waveform=waveform)
     residuals = detector_dictionary.FrequencySeries - h
