@@ -32,11 +32,11 @@ from enum import IntEnum
 class PARAM_COMMON(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
 
-# IMRPhenomD
-PARAM_NAMES_D = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2']
-N_PARAMS_D = 11
+# IMRPhenomD, IMRPhenomXAS
+PARAM_NAMES_DX= ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2']
+N_PARAMS_DX = 11
 
-class PARAM_D(IntEnum):
+class PARAM_DX(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; CHI1=9; CHI2=10
 
 # IMRPhenomPv2
@@ -53,11 +53,14 @@ class PARAM_PV2(IntEnum):
 
 class Waveform(IntEnum):
     IMRPHENOMD = 0
-    IMRPHENOMPV2 = 1
+    IMRPHENOMXAS = 1
+    IMRPHENOMPV2 = 2
 
 _WAVEFORM_ALIASES = {
     "d": Waveform.IMRPHENOMD,
     "imrphenomd": Waveform.IMRPHENOMD,
+    "xas": Waveform.IMRPHENOMXAS,
+    "imrphenomxas": Waveform.IMRPHENOMXAS,
     "pv2": Waveform.IMRPHENOMPV2,
     "imrphenompv2": Waveform.IMRPHENOMPV2,
 }
@@ -542,17 +545,17 @@ def TaylorF2(params, frequency_array):
 
 
 
-# @jax.jit
+
 def template_IMRPhenomD(params, frequency_array):
-    mc                      = params[PARAM_D.MC]
-    q                       = params[PARAM_D.Q]
+    mc                      = params[PARAM_DX.MC]
+    q                       = params[PARAM_DX.Q]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
-    chi1                    = params[PARAM_D.CHI1] # Dimensionless spin
-    chi2                    = params[PARAM_D.CHI2]
+    chi1                    = params[PARAM_DX.CHI1] # Dimensionless spin
+    chi2                    = params[PARAM_DX.CHI2]
     tc                      = 0.0 # Time of coalescence in seconds (set to 0 since the shift is already computed outside)
-    phic                    = params[PARAM_D.PHIREF] # Phase of coalescence (pay attention to the name... phic and phiref are different but in IMRPhenomD shouldn't be relevant)
-    dist_mpc                = jnp.exp(params[PARAM_D.LOGDIST]) # Distance to source in Mpc
-    inclination             = params[PARAM_D.THETA_JN]# Inclination Angle
+    phic                    = params[PARAM_DX.PHIREF] # Phase of coalescence (pay attention to the name... phic and phiref are different but in IMRPhenomD shouldn't be relevant)
+    dist_mpc                = jnp.exp(params[PARAM_DX.LOGDIST]) # Distance to source in Mpc
+    inclination             = params[PARAM_DX.THETA_JN]# Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
     Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
@@ -563,6 +566,27 @@ def template_IMRPhenomD(params, frequency_array):
 
     # jax.debug.print("Max hp: {}, Max hc: {}", jnp.max(jnp.abs(hp)), jnp.max(jnp.abs(hc)))
     return hp, hc 
+
+
+
+def template_IMRPhenomXAS(params, frequency_array):
+    mc                      = params[PARAM_DX.MC]
+    q                       = params[PARAM_DX.Q]
+    m1_msun, m2_msun        = McQ2Masses(mc, q)
+    chi1                    = params[PARAM_DX.CHI1] 
+    chi2                    = params[PARAM_DX.CHI2]
+    tc                      = 0.0 
+    phic                    = params[PARAM_DX.PHIREF] # same as imprphenomd
+    dist_mpc                = jnp.exp(params[PARAM_DX.LOGDIST]) 
+    inclination             = params[PARAM_DX.THETA_JN]
+
+    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+
+    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
+
+    hp, hc            = jax.vmap(IMRPhenomXAS.gen_IMRPhenomXAS_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
+
+    return hp, hc     
 
 
 
@@ -606,9 +630,14 @@ def template(params, frequency_array, waveform='imrphenomd'):
     n = int(params.shape[-1])
 
     if wf == Waveform.IMRPHENOMD:
-        if n != N_PARAMS_D:
-            raise ValueError(f"Waveform IMRPhenomD expects {N_PARAMS_D} params, got {n}.")
+        if n != N_PARAMS_DX:
+            raise ValueError(f"Waveform IMRPhenomD expects {N_PARAMS_DX} params, got {n}.")
         return template_IMRPhenomD(params, frequency_array)
+
+    if wf == Waveform.IMRPHENOMXAS:
+        if n != N_PARAMS_DX:
+            raise ValueError(f"Waveform IMRPhenomXAS expects {N_PARAMS_DX} params, got {n}.")
+        return template_IMRPhenomXAS(params, frequency_array)    
 
     if wf == Waveform.IMRPHENOMPV2:
         if n != N_PARAMS_PV2:
