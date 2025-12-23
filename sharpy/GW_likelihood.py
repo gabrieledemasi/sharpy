@@ -29,23 +29,49 @@ pc = const.pc.value
 
 from enum import IntEnum
 
+class PARAM_COMMON(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
 
+# IMRPhenomD
 PARAM_NAMES_D = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','chi1','chi2']
-
-#PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','s1x','s1y','s1z','s2x','s2y','s2z']  
-PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','a1','cost1','phi1','a2','cost2','phi2']
+N_PARAMS_D = 11
 
 class PARAM_D(IntEnum):
     RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; CHI1=9; CHI2=10
 
-class PARAM_PV2(IntEnum):
-    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; A1=9; COST1=10; PHI1=11; A2=12; COST2=13; PHI2=14
-
-class PARAM_COMMON(IntEnum):
-    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8
-
-N_PARAMS_D = 11
+# IMRPhenomPv2
+PARAM_NAMES_PV2 = ['ra','dec','logdistance','theta_jn','phiref','pol','mc','q','tc','a1','cost1','phi1','a2','cost2','phi2']
 N_PARAMS_PV2 = 15
+
+class PARAM_PV2(IntEnum):
+    RA=0; DEC=1; LOGDIST=2; THETA_JN=3; PHIREF=4; POL=5; MC=6; Q=7; TC=8; A1=9; COST1=10; PHI1=11; A2=12; COST2=13; PHI2=14   
+
+
+
+
+# waveform selection -------------------------------------------------------
+
+class Waveform(IntEnum):
+    IMRPHENOMD = 0
+    IMRPHENOMPV2 = 1
+
+_WAVEFORM_ALIASES = {
+    "d": Waveform.IMRPHENOMD,
+    "imrphenomd": Waveform.IMRPHENOMD,
+    "pv2": Waveform.IMRPHENOMPV2,
+    "imrphenompv2": Waveform.IMRPHENOMPV2,
+}
+
+def _parse_waveform(waveform):
+    if isinstance(waveform, Waveform):
+        return waveform
+    if isinstance(waveform, (int, np.integer)):
+        return Waveform(int(waveform))
+    if isinstance(waveform, str):
+        key = waveform.strip().lower()
+        if key in _WAVEFORM_ALIASES:
+            return _WAVEFORM_ALIASES[key]
+    raise ValueError(f"Unknown waveform: {waveform!r}. Use 'imrphenomd', or 'imrphenompv2'.")
 
 
 
@@ -322,7 +348,7 @@ class GWNetwork:
 
 
 
-def project_waveform(params, detector_dictionary):
+def project_waveform(params, detector_dictionary, waveform="imrphenomd"):
     
     f = detector_dictionary.Frequency
 
@@ -517,7 +543,7 @@ def TaylorF2(params, frequency_array):
 
 
 # @jax.jit
-def template_aligned(params, frequency_array):
+def template_IMRPhenomD(params, frequency_array):
     mc                      = params[PARAM_D.MC]
     q                       = params[PARAM_D.Q]
     m1_msun, m2_msun        = McQ2Masses(mc, q)
@@ -548,7 +574,7 @@ def spherical_to_cart(a, cost, phi):
     sz = a * cost
     return sx, sy, sz
 
-def template_precessing(params, frequency_array):
+def template_IMRPhenomPv2(params, frequency_array):
     mc                  = params[PARAM_PV2.MC]
     q                   = params[PARAM_PV2.Q]
     m1_msun, m2_msun    = McQ2Masses(mc, q)
@@ -573,15 +599,23 @@ def template_precessing(params, frequency_array):
     return hp, hc   
 
 
-def template(params, frequency_array):
+def template(params, frequency_array, waveform='imrphenomd'):
     # Phython wrapper, jit not needed
+    wf = _parse_waveform(waveform)
+
     n = int(params.shape[-1])
-    if n == N_PARAMS_D:
-        return template_aligned(params, frequency_array)
-    elif n == N_PARAMS_PV2:
-        return template_precessing(params, frequency_array)
-    else:
-        raise ValueError(f"Bad params length: {n}. Expected {N_PARAMS_D} or {N_PARAMS_PV2}.")   
+
+    if wf == Waveform.IMRPHENOMD:
+        if n != N_PARAMS_D:
+            raise ValueError(f"Waveform IMRPhenomD expects {N_PARAMS_D} params, got {n}.")
+        return template_IMRPhenomD(params, frequency_array)
+
+    if wf == Waveform.IMRPHENOMPV2:
+        if n != N_PARAMS_PV2:
+            raise ValueError(f"Waveform IMRPhenomPv2 expects {N_PARAMS_PV2} params, got {n}.")
+        return template_IMRPhenomPv2(params, frequency_array)
+
+    raise ValueError(f"Unhandled waveform enum: {wf}.") 
 
 
 
@@ -600,16 +634,18 @@ def template(params, frequency_array):
 
 
 
-def log_likelihood_det(params, detector_list):
+def log_likelihood_det(params, detector_list, waveform):
+    waveform = _parse_waveform(waveform)
 
-    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
+    sdll = partial(single_detector_log_likelihood, waveform=waveform)
 
-    # Then use jnp.sum
+    log_likelihoods = jax.vmap(sdll, in_axes=(None, 0))(params, detector_list)
     return jnp.sum(log_likelihoods)
 
 
-def single_detector_log_likelihood(params, detector_dictionary):
 
-    h = project_waveform(params, detector_dictionary)
+def single_detector_log_likelihood(params, detector_dictionary, waveform="imrphenomd"):
+
+    h = project_waveform(params, detector_dictionary, waveform=waveform)
     residuals = detector_dictionary.FrequencySeries - h
     return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real

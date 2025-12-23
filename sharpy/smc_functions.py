@@ -8,6 +8,7 @@ import numpy as np
 from netket.jax import vmap_chunked
 import json
 import os
+from functools import partial
 
 def build_mass_matrix_fn(log_posterior):
     #build mass matrix function
@@ -224,13 +225,16 @@ def run_sharpy(log_likelihood,
             label = "run",
             initial_particles = "prior",
             initial_logZ = 0.0,
-            initial_dlogZ = 0.0
+            initial_dlogZ = 0.0,
+            log_likelihood_kwargs=None,
             ):
-    
-
 
     if not os.path.exists(folder):
-        os.makedirs(folder)
+        os.makedirs(folder)          
+
+    # Add extra kwargs into the likelihood (e.g. waveform) keeping the "log_likelihood(params)" signature required by the jitted SMC routines.
+    if log_likelihood_kwargs:
+        log_likelihood = partial(log_likelihood, **log_likelihood_kwargs)  
 
     #Define the log-posterior
     def log_posterior(params, beta=1):
