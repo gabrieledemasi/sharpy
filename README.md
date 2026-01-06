@@ -12,8 +12,8 @@ or if conda is not available
 `source /path_to/sharpy_env/bin/activate`
 
 then install SHARPy:<br>
-`git clone git@github.com:gabrieledemasi/SHARPy-GW.git` <br>
-`cd SHARPy-GW`<br>
+`git clone git@github.com:gabrieledemasi/sharpy.git` <br>
+`cd sharpy`<br>
 `pip install .`
 
 To run on GPU please install this version of JAX:
