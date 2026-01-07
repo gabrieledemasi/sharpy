@@ -23,4 +23,4 @@ To run on GPU please install this version of JAX:
 This [notebook](Examples/11D_gaussian_mixture.ipynb) contains a simple test case( a 11D bimodal gaussian mixture) that can be run on a laptop. The run time should be around 1 min, depending on the hardware.
 
 ## Acknowledgements
--
+If you use SHARPy in your research, please cite [Demasi et al, 2026](https://arxiv.org/abs/2601.02336)
