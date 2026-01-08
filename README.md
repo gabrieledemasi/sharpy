@@ -24,3 +24,14 @@ This [notebook](Examples/11D_gaussian_mixture.ipynb) contains a simple test case
 
 ## Acknowledgements
 If you use SHARPy in your research, please cite [Demasi et al, 2026](https://arxiv.org/abs/2601.02336)
+```
+@article{Demasi:2026ltw,
+    author = "Demasi, Gabriele and others",
+    title = "{The Sequential Monte Carlo goes NUTS: Boosting Gravitational-Wave Inference}",
+    eprint = "2601.02336",
+    archivePrefix = "arXiv",
+    primaryClass = "gr-qc",
+    month = "1",
+    year = "2026"
+}
+```
