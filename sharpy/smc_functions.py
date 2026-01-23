@@ -156,7 +156,6 @@ def compute_evidence(result_dict):
     errors       = []
     
     
-    
 
     for key in result_dict.keys():
         
@@ -228,6 +227,7 @@ def run_sharpy(log_likelihood,
             initial_dlogZ = 0.0,
             log_likelihood_kwargs=None,
             ):
+                 
 
     if not os.path.exists(folder):
         os.makedirs(folder)          
@@ -291,7 +291,7 @@ def run_sharpy(log_likelihood,
         samples, log_weights, ess   = step_for(samples, beta_next, beta_prev,weights, resampling_key, mutation_key)
       
         if jnp.isnan(ess):
-            print("ESS is NaN, stopping SMC.")
+            print("ESS is NaN, stopping SMC.", flush = True)
             return -1
 
         #Store SMC step results
@@ -309,7 +309,7 @@ def run_sharpy(log_likelihood,
     posterior_samples       = draw_iid_samples(smc_dict)
     # print("the number of samples after rejection sampling is:", len(posterior_samples))
     logZ, dlogZ             = compute_evidence(smc_dict)
-    # print("logZ = {}, dlogZ = {}".format(logZ, dlogZ))
+    print("logZ = {}, dlogZ = {}".format(logZ, dlogZ), flush = True)
 
 
     #save results
@@ -319,8 +319,8 @@ def run_sharpy(log_likelihood,
     result_dict["dlogZ"]    = float(dlogZ)
     result_dict['posterior_samples'] = posterior_samples.tolist()
 
-    with open(f"{folder}/{label}_result.json", "w") as f:
-        json.dump(result_dict, f)
+    #with open(f"{folder}/{label}_result.json", "w") as f:
+    #    json.dump(result_dict, f)
     
     return result_dict
 

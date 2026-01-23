@@ -215,9 +215,9 @@ def McQ2Masses(mc, q):
     :rtype: tuple
     """
     
-    factor = mc * np.power(1. + q, 1.0/5.0);
-    m1     = factor * np.power(q, -3.0/5.0);
-    m2     = factor * np.power(q, +2.0/5.0);
+    factor = mc * np.power(1. + q, 1.0/5.0)
+    m1     = factor * np.power(q, -3.0/5.0)
+    m2     = factor * np.power(q, +2.0/5.0)
     return m1, m2
 
 @jax.jit
