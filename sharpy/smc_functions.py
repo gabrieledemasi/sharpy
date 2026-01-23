@@ -228,6 +228,8 @@ def run_sharpy(log_likelihood,
             log_likelihood_kwargs=None,
             ):
                  
+    print(f"Entered run_sharpy", flush=True)
+
 
     if not os.path.exists(folder):
         os.makedirs(folder)          

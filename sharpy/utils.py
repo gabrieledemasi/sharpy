@@ -235,9 +235,35 @@ def Masses2McQ(m1, m2):
     """
     
     q   = m2/m1
-    eta = m1*m2/(m1+m2)
+    #eta = m1*m2/(m1+m2)**2
     mc  = (m1*m2)**(3./5.)/(m1+m2)**(1./5.)
     return mc, q
+
+@jax.jit
+def q_to_eta(q):
+    """
+    Compute symmetrical mass ratio from mass ratio
+    """
+    q = jnp.asarray(q)
+    return q / (1.0 + q)**2
+
+
+@jax.jit
+def spherical_to_cart(a, cost, phi):
+    """
+    Convert spin components from spherical to cartesian 
+    """
+    a = jnp.asarray(a)
+    cost = jnp.asarray(cost)
+    phi = jnp.asarray(phi)
+    
+    cost = jnp.clip(cost, -1.0, 1.0)
+    sint = jnp.sqrt(jnp.maximum(0.0, 1.0 - cost*cost))
+    sx = a * sint * jnp.cos(phi)
+    sy = a * sint * jnp.sin(phi)
+    sz = a * cost
+    return sx, sy, sz    
+
 
 
 

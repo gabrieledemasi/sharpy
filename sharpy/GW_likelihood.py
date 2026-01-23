@@ -6,7 +6,7 @@ import numpy as np
 from functools import partial
 import jax
 
-from sharpy.utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses,GreenwichMeanSiderealTime
+from sharpy.utils import TimeDelayFromEarthCenter, Masses2McQ, McQ2Masses,GreenwichMeanSiderealTime, q_to_eta, spherical_to_cart
 from sharpy.noise import load_data, generate_data
 
 
@@ -564,7 +564,8 @@ def TaylorF2(params, frequency_array):
 def template_IMRPhenomD(params, frequency_array):
     mc                      = params[PARAM_DX.MC]
     q                       = params[PARAM_DX.Q]
-    m1_msun, m2_msun        = McQ2Masses(mc, q)
+    #m1_msun, m2_msun        = McQ2Masses(mc, q)
+    eta = q_to_eta(q)
     chi1                    = params[PARAM_DX.CHI1] # Dimensionless spin
     chi2                    = params[PARAM_DX.CHI2]
     tc                      = 0.0 # Time of coalescence in seconds (set to 0 since the shift is already computed outside)
@@ -573,9 +574,9 @@ def template_IMRPhenomD(params, frequency_array):
     inclination             = params[PARAM_DX.THETA_JN]# Inclination Angle
 
     # The PhenomD waveform model is parameterized with the chirp mass and symmetric mass ratio
-    Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+    #Mc, eta           = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
 
-    theta_ripple      = jnp.array([Mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
+    theta_ripple      = jnp.array([mc, eta, chi1, chi2, dist_mpc, tc, phic, inclination])
     # hp, hc       = IMRPhenomD.gen_IMRPhenomD_hphc(frequency_array, theta_ripple, frequency_array[0]) 
     hp, hc            = jax.vmap(IMRPhenomD.gen_IMRPhenomD_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
 
@@ -607,19 +608,14 @@ def template_IMRPhenomXAS(params, frequency_array):
 
 
 
-def spherical_to_cart(a, cost, phi):
-    cost = jnp.clip(cost, -1.0, 1.0)
-    sint = jnp.sqrt(jnp.maximum(0.0, 1.0 - cost*cost))
-    sx = a * sint * jnp.cos(phi)
-    sy = a * sint * jnp.sin(phi)
-    sz = a * cost
-    return sx, sy, sz
+
 
 def template_IMRPhenomPv2(params, frequency_array):
     mc                  = params[PARAM_PV2.MC]
     q                   = params[PARAM_PV2.Q]
-    m1_msun, m2_msun    = McQ2Masses(mc, q)
-    Mc, eta             = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
+    eta = q_to_eta(q)
+    #m1_msun, m2_msun    = McQ2Masses(mc, q)
+    #Mc, eta             = ms_to_Mc_eta(jnp.array([m1_msun, m2_msun]))
 
     a1, c1, p1          = params[PARAM_PV2.A1], params[PARAM_PV2.COST1], params[PARAM_PV2.PHI1]
     a2, c2, p2          = params[PARAM_PV2.A2], params[PARAM_PV2.COST2], params[PARAM_PV2.PHI2]
@@ -633,7 +629,7 @@ def template_IMRPhenomPv2(params, frequency_array):
 
     
 
-    theta_ripple      = jnp.array([Mc, eta, s1x, s1y, s1z, s2x, s2y, s2z, dist_mpc, tc, phi_ref, inclination])
+    theta_ripple      = jnp.array([mc, eta, s1x, s1y, s1z, s2x, s2y, s2z, dist_mpc, tc, phi_ref, inclination])
 
     hp, hc            = jax.vmap(IMRPhenomPv2.gen_IMRPhenomPv2_hphc, in_axes=(0, None, None))(jnp.array([frequency_array]), theta_ripple, 20)
 
