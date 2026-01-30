@@ -202,6 +202,13 @@ def resize_nan_strain(strain, start_time, trig_time, chunk_size, sampling_rate):
         
         return strain[:first_nan_index-1], NaNAtTheBeginning
 
+from scipy.signal import butter, sosfiltfilt
+def highpass(strain, fs, f_hp=15.0, order=4):
+    # Butterworth high-pass in SOS form (stabile)
+    sos = butter(order, f_hp, btype="highpass", fs=fs, output="sos")
+    # zero-phase filtering
+    return sosfiltfilt(sos, strain)            
+
 
 def load_data(fname,
               ifo,
@@ -286,6 +293,7 @@ def load_data(fname,
 
     # sampling rate (Hz)
     srate=1./dt
+    print('sampling rate = ', srate)
     
     # downsample the data segment if requested
     if sampling_rate is not None:
@@ -294,6 +302,9 @@ def load_data(fname,
         dt     = 1./srate
     else:
         strain = rawstrain
+
+    # highpass filter 
+    strain = highpass(strain, srate, f_hp=15.0, order=4)    
     
     # find the index corresponding to the trigger time
     index_trigtime = int((trigtime-starttime)*srate)
@@ -307,9 +318,8 @@ def load_data(fname,
     chunk_start       = starttime+dt*index_chunk_start
 
     # time-domain signal chunk
-    signal_chunk = np.zeros(chunksize,dtype=np.float64)
-    for i in range(chunksize):
-        signal_chunk[i] = strain[index_chunk_start+i]
+    signal_chunk = np.asarray(strain[index_chunk_start:index_chunk_start+chunksize], dtype=np.float64).copy()
+
     
     # and corresponding frequencies
     frequencies = np.fft.rfftfreq(chunksize, dt)
@@ -325,6 +335,8 @@ def load_data(fname,
     
     # compute the frequency domain strain, accounting for the window normalisation that takes away some energy
     sf = np.fft.rfft(signal_chunk)*SQRTwindowNorm*dt
+
+
     
     mesa_object = None
     # power spectral density: either passed by the user or computed through the Welch or the MESA method
@@ -334,25 +346,20 @@ def load_data(fname,
             sys.stdout.write("Estimating power spectral density with the Welch method\n")
             
             # compute the PSD by removing the signal chunk   #np.concatenate([strain[:index_chunk_start],strain[index_chunk_start + chunksize:]]),#
-            """
-            freqs, psd = welch.psd(np.delete(strain,range(index_chunk_start,index_chunk_start+chunksize,chunksize)), 
-                                   srate,
-                                   chunk_size,
-                                   window_function  = window,
-                                   overlap_fraction = 0.5)"""
+            gate_half  = 4.0      # remove ±4s around trigger
+            psd_segments = 4.0      # welch on 4s segments  
 
-            pre  = strain[:index_chunk_start]
-            post = strain[index_chunk_start + chunksize:]                       
-
-            freqs, psd_pre  = welch.psd(pre,  srate, chunk_size,
-                            window_function=window,
-                            overlap_fraction=0.5)
-            _,     psd_post = welch.psd(post, srate, chunk_size,
-                            window_function=window,
-                            overlap_fraction=0.5)
-
+            gate_start = max(index_trigtime - int(gate_half*srate), 0)
+            gate_end   = min(index_trigtime + int(gate_half*srate), len(strain))
+    
+            pre  = strain[:gate_start]
+            post = strain[gate_end:]
+    
+            freqs, psd_pre  = welch.psd(pre,  srate, psd_segments, window_function=None, overlap_fraction=0.5)
+            _,     psd_post = welch.psd(post, srate, psd_segments, window_function=None, overlap_fraction=0.5)
+    
             w_pre, w_post = len(pre), len(post)
-            psd = (w_pre * psd_pre + w_post * psd_post) / (w_pre + w_post)                
+            psd = (w_pre*psd_pre + w_post*psd_post) / (w_pre + w_post)                
                     
 
         elif psd_method == 'mesa':
