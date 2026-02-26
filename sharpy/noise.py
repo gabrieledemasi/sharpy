@@ -334,7 +334,7 @@ def load_data(fname,
             sys.stdout.write("Estimating power spectral density with the Welch method\n")
             
             # compute the PSD by removing the signal chunk
-            freqs, psd = welch.psd(np.delete(strain,range(index_chunk_start,index_chunk_start+chunksize,chunksize)),
+            freqs, psd = welch.psd(np.delete(strain,range(index_chunk_start,index_chunk_start+chunksize)),
                                    srate,
                                    chunk_size,
                                    window_function  = window,
