@@ -232,32 +232,48 @@ def run_sharpy(log_likelihood,
     if not os.path.exists(folder):
         os.makedirs(folder)
 
-    #Define the log-posterior
-    def log_posterior(params, beta=1):
-        return log_likelihood(params)*beta + prior(params)
+
+    #we sample in the unit cube and transform to the original space using the prior bounds
+    def prior_transform(u):
+        lo = prior_bounds[:, 0]
+        hi = prior_bounds[:, 1]
+        return lo + u * (hi - lo)
+
+    # u-bounds (cube)
+    prior_bounds_unit = jnp.array([[0.0, 1.0]] * prior_bounds.shape[0])
+
+    def log_posterior_unit(u, beta=1.0):
+        q = prior_transform(u)
+        return beta * log_likelihood(q) + prior(q)
+    
+    def log_likelihood_unit(u):
+        theta = prior_transform(u)
+        return log_likelihood(theta)
 
     #Set up the SMC components
-    kernel                      = blackjax.nuts.build_kernel( prior_bounds, boundary_conditions, integrators.velocity_verlet)
-    mass_matrix_fn              = build_mass_matrix_fn(log_posterior)
-    kernel_fn                   = build_kernel_fn(kernel, log_posterior, step_size)
-    compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood)
+    kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
+    mass_matrix_fn              = build_mass_matrix_fn(log_posterior_unit, )
+    kernel_fn                   = build_kernel_fn(kernel, log_posterior_unit, step_size)
+    compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood_unit)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
-    mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior)
+    mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior_unit)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
-    vmapped_likelihood          = jax.jit(jax.vmap(log_likelihood))
+    vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
     smc_dict                    = {}        
+
 
     #Generate initial particles from the prior
     if initial_particles == "prior":
-        initial_position = jax.random.uniform(
+        initial_position= jax.random.uniform(
                                             jax.random.PRNGKey(1),
                                             shape=(number_of_particles, len(prior_bounds)),
-                                            minval=prior_bounds[:, 0],
-                                            maxval=prior_bounds[:, 1]
+                                            minval=0.0,
+                                            maxval=1.0
                                             )
     else:
         initial_position = initial_particles
         
+
     
     
     #initialize SMC
@@ -294,7 +310,7 @@ def run_sharpy(log_likelihood,
         smc_dict[step]["samples"]           = np.array(samples).tolist()
         smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
-        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood(samples)).tolist()
+        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood_unit(samples)).tolist()
         smc_dict[step]['beta']              = float(beta_next)
         beta_prev                           = beta_next
         step                               += 1
@@ -313,7 +329,7 @@ def run_sharpy(log_likelihood,
     result_dict['SMC']      = smc_dict
     result_dict['logZ']     = float(logZ)
     result_dict["dlogZ"]    = float(dlogZ)
-    result_dict['posterior_samples'] = posterior_samples.tolist()
+    result_dict['posterior_samples'] = prior_transform(posterior_samples).tolist()
 
     with open(f"{folder}/{label}_result.json", "w") as f:
         json.dump(result_dict, f)
