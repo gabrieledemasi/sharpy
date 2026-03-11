@@ -12,8 +12,8 @@ or if conda is not available
 `source /path_to/sharpy_env/bin/activate`
 
 then install SHARPy:<br>
-`git clone git@github.com:gabrieledemasi/SHARPy-GW.git` <br>
-`cd SHARPy-GW`<br>
+`git clone git@github.com:gabrieledemasi/sharpy.git` <br>
+`cd sharpy`<br>
 `pip install .`
 
 To run on GPU please install this version of JAX:
@@ -23,4 +23,15 @@ To run on GPU please install this version of JAX:
 This [notebook](Examples/11D_gaussian_mixture.ipynb) contains a simple test case( a 11D bimodal gaussian mixture) that can be run on a laptop. The run time should be around 1 min, depending on the hardware.
 
 ## Acknowledgements
--
+If you use SHARPy in your research, please cite [Demasi et al, 2026](https://arxiv.org/abs/2601.02336)
+```
+@article{Demasi:2026ltw,
+    author = "Demasi, Gabriele and others",
+    title = "{The Sequential Monte Carlo goes NUTS: Boosting Gravitational-Wave Inference}",
+    eprint = "2601.02336",
+    archivePrefix = "arXiv",
+    primaryClass = "gr-qc",
+    month = "1",
+    year = "2026"
+}
+```
