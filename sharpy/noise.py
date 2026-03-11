@@ -337,13 +337,6 @@ def load_data(fname,
             sys.stdout.write("Estimating power spectral density with the Welch method\n")
             
             # compute the PSD by removing the signal chunk
-            freqs, psd = welch.psd(np.delete(strain,range(index_chunk_start,index_chunk_start+chunksize)),
-                                   srate,
-                                   chunk_size,
-                                   window_function  = window,
-                                   overlap_fraction = 0.5)
-
-            '''
             pre  = strain[:index_chunk_start]
             post = strain[index_chunk_start + chunksize:]                       
 
@@ -355,7 +348,7 @@ def load_data(fname,
                             overlap_fraction=0.5)
 
             w_pre, w_post = len(pre), len(post)
-            psd = (w_pre * psd_pre + w_post * psd_post) / (w_pre + w_post)    '''                     
+            psd = (w_pre * psd_pre + w_post * psd_post) / (w_pre + w_post)                      
 
         elif psd_method == 'mesa':
             sys.stdout.write("Estimating power spectral density with the Burg method\n")
