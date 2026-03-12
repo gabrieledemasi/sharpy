@@ -299,12 +299,14 @@ class GWNetwork:
 
 
 
-def project_waveform(params, detector_dictionary):
+def project_waveform(params,waveform, detector_dictionary):
     
     f = detector_dictionary.Frequency
 
-    h_plus, h_cross = template(params, f)
+    # h_plus, h_cross = template(params, f)
+    h_plus, h_cross   = waveform
     # h_plus, h_cross   = TaylorF2(params, f)
+
 
 
 
@@ -530,15 +532,16 @@ def template(params, frequency_array):
 
 
 def log_likelihood_det(params, detector_list):
+    waveform = template(params, detector_list.Frequency[0]) # Assuming all detectors have the same frequency array
 
-    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None, 0))(params, detector_list)
+    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None,None, 0))(params,waveform,  detector_list)
 
     # Then use jnp.sum
     return jnp.sum(log_likelihoods)
 
 
-def single_detector_log_likelihood(params, detector_dictionary):
+def single_detector_log_likelihood(params, waveform, detector_dictionary):
 
-    h = project_waveform(params, detector_dictionary)
+    h = project_waveform(params, waveform, detector_dictionary)
     residuals = detector_dictionary.FrequencySeries - h
     return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real
