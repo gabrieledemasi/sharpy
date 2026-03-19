@@ -1,5 +1,3 @@
-
-
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -189,11 +187,11 @@ def stack_detectors(detectors_list):
 
 
 
-def inject_signal_in_detector(params, detector_dictionary):
+def inject_signal_in_detector(params,waveform,  detector_dictionary):
         """
         Inject a signal into the detector noise.
         """
-        h           = project_waveform(params, detector_dictionary)
+        h           = project_waveform(params,waveform, detector_dictionary)
 
         # add to the detector noise
         detector_dictionary.FrequencySeries += h
@@ -248,7 +246,8 @@ class GWNetwork:
 
 
     def inject_signal_in_noise(self, ):
-        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None, 0))(self.injection_parameters, self.batched_detector)
+        waveform = template(self.injection_parameters, self.batched_detector.Frequency[0]) # Assuming all detectors have the same frequency array
+        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None,None, 0))(self.injection_parameters,waveform, self.batched_detector)
         total_snr = jnp.sqrt(jnp.sum(snr**2))
         return detector_dictionaries, total_snr
     
