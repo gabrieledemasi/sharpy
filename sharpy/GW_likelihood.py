@@ -187,11 +187,11 @@ def stack_detectors(detectors_list):
 
 
 
-def inject_signal_in_detector(params,waveform,  detector_dictionary):
+def inject_signal_in_detector(params,evaluated_template,  detector_dictionary):
         """
         Inject a signal into the detector noise.
         """
-        h           = project_waveform(params,waveform, detector_dictionary)
+        h           = project_waveform(params,evaluated_template, detector_dictionary)
 
         # add to the detector noise
         detector_dictionary.FrequencySeries += h
@@ -246,8 +246,8 @@ class GWNetwork:
 
 
     def inject_signal_in_noise(self, ):
-        waveform = template(self.injection_parameters, self.batched_detector.Frequency[0]) # Assuming all detectors have the same frequency array
-        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None,None, 0))(self.injection_parameters,waveform, self.batched_detector)
+        evaluated_template = template(self.injection_parameters, self.batched_detector.Frequency[0]) # Assuming all detectors have the same frequency array
+        detector_dictionaries, snr = jax.vmap(inject_signal_in_detector,in_axes=(None,None, 0))(self.injection_parameters,evaluated_template, self.batched_detector)
         total_snr = jnp.sqrt(jnp.sum(snr**2))
         return detector_dictionaries, total_snr
     
@@ -298,12 +298,12 @@ class GWNetwork:
 
 
 
-def project_waveform(params,waveform, detector_dictionary):
+def project_waveform(params,evaluated_template, detector_dictionary):
     
     f = detector_dictionary.Frequency
 
     # h_plus, h_cross = template(params, f)
-    h_plus, h_cross   = waveform
+    h_plus, h_cross   = evaluated_template
     # h_plus, h_cross   = TaylorF2(params, f)
 
 
@@ -531,16 +531,16 @@ def template(params, frequency_array):
 
 
 def log_likelihood_det(params, detector_list):
-    waveform = template(params, detector_list.Frequency[0]) # Assuming all detectors have the same frequency array
+    evaluated_template = template(params, detector_list.Frequency[0]) # Assuming all detectors have the same frequency array
 
-    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None,None, 0))(params,waveform,  detector_list)
+    log_likelihoods = jax.vmap(single_detector_log_likelihood, in_axes=(None,None, 0))(params,evaluated_template,  detector_list)
 
     # Then use jnp.sum
     return jnp.sum(log_likelihoods)
 
 
-def single_detector_log_likelihood(params, waveform, detector_dictionary):
+def single_detector_log_likelihood(params, evaluated_template, detector_dictionary):
 
-    h = project_waveform(params, waveform, detector_dictionary)
+    h = project_waveform(params, evaluated_template, detector_dictionary)
     residuals = detector_dictionary.FrequencySeries - h
     return -detector_dictionary.TwoDeltaTOverN * jnp.vdot(residuals / jnp.sqrt(detector_dictionary.sigmasq), residuals / jnp.sqrt(detector_dictionary.sigmasq)).real
