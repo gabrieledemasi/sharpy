@@ -1,5 +1,5 @@
 import jax
-from sharpy.utils import compute_mass_matrix
+from sharpy.utils import compute_mass_matrix, sample_from_prior
 import jax.numpy as jnp 
 from jax import random
 from blackjax.mcmc import integrators
@@ -8,6 +8,7 @@ import numpy as np
 from netket.jax import vmap_chunked
 import json
 import os
+
 
 def build_mass_matrix_fn(log_posterior):
     #build mass matrix function
@@ -83,7 +84,7 @@ def compute_weight_and_ess_fn(log_likelihood):
 def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess):
     
     # Single SMC step
-    def smc_step(samples, beta,beta_prev, weights,  resampling_key, mutation_keys):
+    def smc_step(samples, beta,beta_prev, resampling_key, mutation_keys):
 
         log_weights, ess                = compute_weight_and_ess(samples, beta, beta_prev)
         weights                         = jnp.exp(log_weights - jax.scipy.special.logsumexp(log_weights))
@@ -148,10 +149,10 @@ def draw_iid_samples(dict):
 
 
 
-def compute_evidence(result_dict):
+def compute_evidence(result_dict, initial_logZ = 0.0):
 
     
-    log_evidence = 0.0
+    log_evidence = initial_logZ
     errors       = []
     
     
@@ -249,6 +250,11 @@ def run_sharpy(log_likelihood,
     def log_likelihood_unit(u):
         theta = prior_transform(u)
         return log_likelihood(theta)
+    
+
+    def log_prior_unit(u):
+        theta = prior_transform(u)
+        return prior(theta)
 
     #Set up the SMC components
     kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
@@ -264,12 +270,10 @@ def run_sharpy(log_likelihood,
 
     #Generate initial particles from the prior
     if initial_particles == "prior":
-        initial_position= jax.random.uniform(
-                                            jax.random.PRNGKey(1),
-                                            shape=(number_of_particles, len(prior_bounds)),
-                                            minval=0.0,
-                                            maxval=1.0
-                                            )
+
+        initial_position, initial_logZ = sample_from_prior(jax.random.PRNGKey(1), number_of_particles, log_prior_unit, prior_bounds_unit, oversample=5)
+
+
     else:
         initial_position = initial_particles
         
@@ -280,12 +284,13 @@ def run_sharpy(log_likelihood,
     
 
     initial_beta    = 0.0
-    initial_weights = jnp.ones(number_of_particles) / number_of_particles
     beta_prev       = initial_beta
-    weights         = initial_weights
+    # weights         = initial_weights
     samples         = initial_position
     beta_next       = initial_beta
     step            = 0
+
+
 
 
     
@@ -300,7 +305,7 @@ def run_sharpy(log_likelihood,
         mutation_key            = random.split(master_key + step, number_of_particles)
 
         #Do a SMC step
-        samples, log_weights, ess   = step_for(samples, beta_next, beta_prev,weights, resampling_key, mutation_key)
+        samples, log_weights, ess   = step_for(samples, beta_next, beta_prev, resampling_key, mutation_key)
       
         if jnp.isnan(ess):
             print("ESS is NaN, stopping SMC.")
@@ -320,7 +325,7 @@ def run_sharpy(log_likelihood,
     #compute evidence and draw iid samples using rejection sampling
     posterior_samples       = draw_iid_samples(smc_dict)
     # print("the number of samples after rejection sampling is:", len(posterior_samples))
-    logZ, dlogZ             = compute_evidence(smc_dict)
+    logZ, dlogZ             = compute_evidence(smc_dict, initial_logZ = initial_logZ)
     # print("logZ = {}, dlogZ = {}".format(logZ, dlogZ))
 
 
@@ -335,6 +340,9 @@ def run_sharpy(log_likelihood,
         json.dump(result_dict, f)
     
     return result_dict
+
+
+
 
 
 

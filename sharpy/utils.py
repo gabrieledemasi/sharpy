@@ -243,3 +243,74 @@ def Masses2McQ(m1, m2):
 
 
 
+
+
+
+#################3
+# PRIOR UTILS
+##################
+from jax.scipy.special import logsumexp
+
+
+def importance_sampling_uniform(
+                                key,
+                                n_samples,
+                                prior_logprob,
+                                bounds,):      
+    dim = bounds.shape[0]
+    
+    # Sample from uniform proposal
+    x = jax.random.uniform(
+        key,
+        shape=(n_samples, dim),
+        minval=bounds[:, 0],
+        maxval=bounds[:, 1],
+    )
+
+    # Compute log prior
+    logp = jax.vmap(prior_logprob)(x)
+
+    # log q(x) for uniform
+    widths = bounds[:, 1] - bounds[:, 0]
+    logq = -jnp.sum(jnp.log(widths))
+
+    logw = logp - logq
+    logZ = logsumexp(logw) - jnp.log(n_samples)
+    # Stabilize weights
+    logw = logw - jnp.max(logw)
+    w = jnp.exp(logw)
+    w = w / jnp.sum(w)
+
+    return x, w, logZ
+
+def sample_from_prior(key, n_particles, prior_logprob, bounds, oversample=5):
+    key_prop, key_resample = jax.random.split(key)
+
+    
+
+    while True:
+        x, w, logZ = importance_sampling_uniform(
+                                                    key_prop,
+                                                    n_particles * oversample,
+                                                    prior_logprob,
+                                                    bounds,
+                                                    )
+        
+        ess = (jnp.sum(w) ** 2) / jnp.sum(w ** 2)
+        if ess>= n_particles:
+            break
+        else:
+            oversample *= 2
+
+
+    initial_evidence = logZ
+    idx = jax.random.choice(
+                            key_resample,
+                            x.shape[0],
+                            shape=(n_particles,),
+                            p=w,
+                            replace=True,
+                        )
+
+
+    return x[idx], initial_evidence
