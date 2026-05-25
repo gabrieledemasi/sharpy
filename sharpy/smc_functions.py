@@ -121,7 +121,8 @@ import sys
 def draw_iid_samples(dict):
     result = dict 
     samples         = []
-    log_posteriors = []
+    log_likelihoods = []
+    log_priors      = []
     betas           = []
     log_evidences   = []
     log_evidence    = 0.0 #this is the evidence of the prior 
@@ -129,7 +130,10 @@ def draw_iid_samples(dict):
     for key in result.keys():
         
         samples         += list(result[key]['samples'])
-        log_posteriors += list((result[key]['log_posteriors']))
+        # log_posteriors += list((result[key]['log_posteriors']))
+        log_likelihoods += list(result[key]['log_likelihoods'])
+        log_priors      += list(result[key]['log_prior'])
+        
         betas.append(result[key]['beta'])
 
         log_evidence_piece = logsumexp(result[key]['log_weights']) - np.log(len(result[key]['log_weights']))
@@ -140,13 +144,19 @@ def draw_iid_samples(dict):
     betas                   = np.array(betas)
     log_evidences           = np.array(log_evidences)
     samples                 = np.array(samples)
-    log_posteriors         = np.array(log_posteriors)
+    log_likelihoods         = np.array(log_likelihoods)
+    log_priors              = np.array(log_priors)
+    log_posteriors          = np.array(log_likelihoods) + np.array(log_priors)
 
-    "construct mixture posterior"
-    log_posterior_primed        = np.array([log_posteriors * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
+
+    log_posterior_primed    = np.array([
+                                        beta * log_likelihoods + log_priors - log_evidence
+                                        for beta, log_evidence in zip(betas, log_evidences)
+                                    ])
+   
     log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
 
-
+  
     #rejection sampling
     M           = np.max( log_posteriors - log_posterior_primed)  
     u           = np.random.uniform( size = len(log_posterior_primed))
@@ -274,7 +284,8 @@ def run_sharpy(log_likelihood,
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior_unit)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
-    vmapped_posterior_unit     = jax.jit(jax.vmap(log_posterior_unit))
+    vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
+    vmapped_prior_unit          = jax.jit(jax.vmap(log_prior_unit))
     smc_dict                    = {}        
 
 
@@ -325,7 +336,8 @@ def run_sharpy(log_likelihood,
         smc_dict[step]["samples"]           = np.array(samples).tolist()
         smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
-        smc_dict[step]['log_posteriors']   = np.array(vmapped_posterior_unit(samples)).tolist()
+        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood_unit(samples)).tolist()
+        smc_dict[step]['log_prior']         = np.array(vmapped_prior_unit(samples)).tolist()
         smc_dict[step]['beta']              = float(beta_next)
         beta_prev                           = beta_next
         step                               += 1
