@@ -258,7 +258,7 @@ def run_sharpy(log_likelihood,
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior_unit)
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
-    vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
+    vmapped_posterior_unit     = jax.jit(jax.vmap(log_posterior_unit))
     smc_dict                    = {}        
 
 
@@ -310,7 +310,7 @@ def run_sharpy(log_likelihood,
         smc_dict[step]["samples"]           = np.array(samples).tolist()
         smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
         smc_dict[step]["ess"]               = float(ess)
-        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood_unit(samples)).tolist()
+        smc_dict[step]['log_posteriors']   = np.array(vmapped_posterior_unit(samples)).tolist()
         smc_dict[step]['beta']              = float(beta_next)
         beta_prev                           = beta_next
         step                               += 1
