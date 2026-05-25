@@ -9,6 +9,16 @@ from netket.jax import vmap_chunked
 import json
 import os
 
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("SHARPy")
+
+
+
 
 def build_mass_matrix_fn(log_posterior):
     #build mass matrix function
@@ -308,7 +318,7 @@ def run_sharpy(log_likelihood,
         samples, log_weights, ess   = step_for(samples, beta_next, beta_prev, resampling_key, mutation_key)
       
         if jnp.isnan(ess):
-            print("ESS is NaN, stopping SMC.")
+            logger.error("ESS is NaN at step {}, beta = {:.4f}. Terminating SMC.".format(step, beta_next))
             return -1
 
         #Store SMC step results
@@ -319,8 +329,8 @@ def run_sharpy(log_likelihood,
         smc_dict[step]['beta']              = float(beta_next)
         beta_prev                           = beta_next
         step                               += 1
-        print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)
-
+        # print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)
+        logger.info("Completed step {}, beta = {:.4f}, ESS = {:.2f} \r".format(step, beta_next, ess))
 
     #compute evidence and draw iid samples using rejection sampling
     posterior_samples       = draw_iid_samples(smc_dict)
