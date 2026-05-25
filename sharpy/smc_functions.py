@@ -199,7 +199,7 @@ def find_next_beta(compute_weight_and_ess, samples, beta_prev, ess_target):
             beta_next = beta_upper
             break
         beta_next = (beta_lower + beta_upper) / 2.0
-        ess_diff = compute_weight_and_ess(samples, beta_upper, beta_prev)[1] - ess_target
+        ess_diff = compute_weight_and_ess(samples, beta_next, beta_prev)[1] - ess_target
         if ess_diff > 0:
             beta_lower = beta_next
         else:
