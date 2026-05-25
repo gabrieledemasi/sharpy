@@ -110,7 +110,7 @@ import sys
 def draw_iid_samples(dict):
     result = dict 
     samples         = []
-    log_likelihoods = []
+    log_posteriors = []
     betas           = []
     log_evidences   = []
     log_evidence    = 0.0 #this is the evidence of the prior 
@@ -118,7 +118,7 @@ def draw_iid_samples(dict):
     for key in result.keys():
         
         samples         += list(result[key]['samples'])
-        log_likelihoods += list((result[key]['log_likelihoods']))
+        log_posteriors += list((result[key]['log_posteriors']))
         betas.append(result[key]['beta'])
 
         log_evidence_piece = logsumexp(result[key]['log_weights']) - np.log(len(result[key]['log_weights']))
@@ -129,17 +129,17 @@ def draw_iid_samples(dict):
     betas                   = np.array(betas)
     log_evidences           = np.array(log_evidences)
     samples                 = np.array(samples)
-    log_likelihoods         = np.array(log_likelihoods)
+    log_posteriors         = np.array(log_posteriors)
 
     "construct mixture posterior"
-    log_posterior_primed        = np.array([log_likelihoods * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
+    log_posterior_primed        = np.array([log_posteriors * beta - log_evidence for beta, log_evidence in zip(betas, log_evidences)])
     log_posterior_primed        = jnp.logaddexp.reduce( log_posterior_primed, axis = 0) - jnp.log(len(result.keys()))
 
 
     #rejection sampling
-    M           = np.max( log_likelihoods - log_posterior_primed)  
+    M           = np.max( log_posteriors - log_posterior_primed)  
     u           = np.random.uniform( size = len(log_posterior_primed))
-    accepted    =  +log_likelihoods - log_posterior_primed - M > np.log(u)
+    accepted    =  +log_posteriors - log_posterior_primed - M > np.log(u)
     samples     = samples[accepted]
 
     
