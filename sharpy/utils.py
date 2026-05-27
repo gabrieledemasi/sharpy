@@ -314,3 +314,219 @@ def sample_from_prior(key, n_particles, prior_logprob, bounds, oversample=5):
 
 
     return x[idx], initial_evidence
+
+
+
+
+
+
+
+from functools import wraps
+from typing import Callable, Any
+
+import jax
+import jax.numpy as jnp
+from jax import lax
+from jax.tree_util import tree_map
+
+
+
+from jax.tree_util import tree_leaves, tree_map
+
+
+
+def _axis_size(tree, axis: int = 0) -> int:
+    """
+    Get mapped axis size from the first array leaf of a pytree.
+    """
+    leaves = tree_leaves(tree)
+
+    if len(leaves) == 0:
+        raise ValueError("Cannot infer axis size from an empty pytree.")
+
+    for leaf in leaves:
+        if hasattr(leaf, "shape"):
+            return leaf.shape[axis]
+
+    raise ValueError("Could not find an array-like leaf with a shape.")
+
+
+def _check_axis_size(tree, expected_size: int, axis: int = 0):
+    """
+    Check that every array leaf in a pytree has the expected mapped axis size.
+    """
+    for leaf in tree_leaves(tree):
+        if hasattr(leaf, "shape"):
+            if leaf.shape[axis] != expected_size:
+                raise ValueError(
+                    f"Mapped pytree leaves must all have axis size {expected_size}, "
+                    f"but found leaf with shape {leaf.shape}."
+                )
+
+
+def _pad_axis0(x, pad_amount: int):
+    """
+    Pad a single array on axis 0.
+    """
+    if pad_amount == 0:
+        return x
+
+    pad_width = [(0, 0)] * x.ndim
+    pad_width[0] = (0, pad_amount)
+    return jnp.pad(x, pad_width)
+
+
+def _chunk_axis0(x, n_chunks: int, chunk_size: int):
+    """
+    Reshape array from:
+
+        (padded_n, ...)
+
+    to:
+
+        (n_chunks, chunk_size, ...)
+    """
+    return x.reshape((n_chunks, chunk_size) + x.shape[1:])
+
+
+def _unchunk_axis0(x, original_size: int, padded_size: int):
+    """
+    Reshape array from:
+
+        (n_chunks, chunk_size, ...)
+
+    to:
+
+        (original_size, ...)
+    """
+    x = x.reshape((padded_size,) + x.shape[2:])
+    return x[:original_size]
+
+
+def vmap_chunked(
+    f: Callable,
+    in_axes=0,
+    *,
+    chunk_size: int | None = None,
+    axis_0_is_sharded: bool = False,
+) -> Callable:
+    """
+    Chunked version of jax.vmap.
+
+    Supports pytrees as mapped arguments, for example BlackJAX / HMCState objects.
+
+    Example:
+
+        kernel_fn = vmap_chunked(
+            kernel_fn_single,
+            in_axes=(0, 0, 0, 0),
+            chunk_size=1000,
+        )
+
+    or:
+
+        batched_single = vmap_chunked(
+            single,
+            in_axes=(0, None),
+            chunk_size=1000,
+        )
+
+    Notes:
+      - Supports only axis 0 or None in in_axes.
+      - Supports pytree inputs and pytree outputs.
+      - Pads internally to a multiple of chunk_size, then slices back.
+      - axis_0_is_sharded is accepted for API compatibility, but not implemented.
+    """
+
+    if chunk_size is None:
+        return jax.vmap(f, in_axes=in_axes)
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive or None.")
+
+    def normalize_in_axes(num_args: int):
+        if isinstance(in_axes, int) or in_axes is None:
+            return (in_axes,) * num_args
+
+        if isinstance(in_axes, (tuple, list)):
+            if len(in_axes) != num_args:
+                raise ValueError(
+                    f"in_axes has length {len(in_axes)}, but function got "
+                    f"{num_args} positional arguments."
+                )
+            return tuple(in_axes)
+
+        raise TypeError("Only int, None, tuple, or list in_axes are supported.")
+
+    def check_axes(axes):
+        for ax in axes:
+            if ax not in (0, None):
+                raise NotImplementedError(
+                    "This simplified vmap_chunked only supports in_axes entries "
+                    "equal to 0 or None."
+                )
+
+    @wraps(f)
+    def wrapped(*args: Any):
+        axes = normalize_in_axes(len(args))
+        check_axes(axes)
+
+        mapped_positions = [i for i, ax in enumerate(axes) if ax == 0]
+
+        if len(mapped_positions) == 0:
+            return f(*args)
+
+        first_mapped_arg = args[mapped_positions[0]]
+        n = _axis_size(first_mapped_arg, axis=0)
+
+        for i in mapped_positions:
+            _check_axis_size(args[i], n, axis=0)
+
+        n_chunks = (n + chunk_size - 1) // chunk_size
+        padded_n = n_chunks * chunk_size
+        pad_amount = padded_n - n
+
+        def pad_and_chunk_tree(tree):
+            return tree_map(
+                lambda x: _chunk_axis0(_pad_axis0(x, pad_amount), n_chunks, chunk_size)
+                if hasattr(x, "shape")
+                else x,
+                tree,
+            )
+
+        chunked_args = {
+            i: pad_and_chunk_tree(args[i])
+            for i in mapped_positions
+        }
+
+        vmapped_f = jax.vmap(f, in_axes=axes)
+
+        def scan_body(_, chunk_index):
+            call_args = []
+
+            for i, arg in enumerate(args):
+                if axes[i] == 0:
+                    chunk_arg = tree_map(
+                        lambda x: x[chunk_index] if hasattr(x, "shape") else x,
+                        chunked_args[i],
+                    )
+                    call_args.append(chunk_arg)
+                else:
+                    call_args.append(arg)
+
+            y = vmapped_f(*call_args)
+            return None, y
+
+        _, ys = lax.scan(scan_body, None, jnp.arange(n_chunks))
+
+        def unchunk_tree(tree):
+            return tree_map(
+                lambda x: _unchunk_axis0(x, n, padded_n)
+                if hasattr(x, "shape")
+                else x,
+                tree,
+            )
+
+        return unchunk_tree(ys)
+
+    return wrapped

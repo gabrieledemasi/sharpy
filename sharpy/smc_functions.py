@@ -5,7 +5,8 @@ from jax import random
 from blackjax.mcmc import integrators
 import blackjax
 import numpy as np 
-from netket.jax import vmap_chunked
+# from netket.jax import vmap_chunked
+from sharpy.utils import vmap_chunked
 import json
 import os
 
@@ -362,6 +363,8 @@ def run_sharpy(log_likelihood,
         json.dump(result_dict, f)
     
     return result_dict
+
+
 
 
 
