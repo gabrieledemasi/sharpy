@@ -8,6 +8,7 @@ import numpy as np
 # from netket.jax import vmap_chunked
 from sharpy.utils import vmap_chunked
 import json
+from corner import corner
 import os
 
 import logging
@@ -242,11 +243,12 @@ def run_sharpy(log_likelihood,
             number_of_particles, 
             step_size,   
             master_key,
-            folder = ".",
-            label = "run",
-            initial_particles = "prior",
-            initial_logZ = 0.0,
-            initial_dlogZ = 0.0
+            folder              = ".",
+            label               = "run",
+            initial_particles   = "prior",
+            initial_logZ        = 0.0,
+            initial_dlogZ       = 0.0,
+            use_flow            = False,
             ):
     
 
@@ -260,6 +262,11 @@ def run_sharpy(log_likelihood,
         lo = prior_bounds[:, 0]
         hi = prior_bounds[:, 1]
         return lo + u * (hi - lo)
+    
+    def inverse_prior_transform(theta):
+        lo = prior_bounds[:, 0]
+        hi = prior_bounds[:, 1]
+        return (theta - lo) / (hi - lo)
 
     # u-bounds (cube)
     prior_bounds_unit = jnp.array([[0.0, 1.0]] * prior_bounds.shape[0])
@@ -276,6 +283,26 @@ def run_sharpy(log_likelihood,
     def log_prior_unit(u):
         theta = prior_transform(u)
         return prior(theta)
+    
+
+    def log_abs_det_jacobian_prior_transform(u):
+        lo = prior_bounds[:, 0]
+        hi = prior_bounds[:, 1]
+        return jnp.sum(jnp.log(hi - lo))
+
+
+    def log_likelihood_unit(u):
+        theta = prior_transform(u)
+        return log_likelihood(theta)
+
+
+    def log_prior_unit(u):
+        theta = prior_transform(u)
+        return prior(theta) + log_abs_det_jacobian_prior_transform(u)
+
+
+    def log_posterior_unit(u, beta=1.0):
+        return log_prior_unit(u) + beta * log_likelihood_unit(u)
 
     #Set up the SMC components
     kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
@@ -287,15 +314,17 @@ def run_sharpy(log_likelihood,
     step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
     vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
     vmapped_prior_unit          = jax.jit(jax.vmap(log_prior_unit))
+    vmapped_posterior_unit       = jax.jit(jax.vmap(log_posterior_unit))
     smc_dict                    = {}        
 
+    
 
     #Generate initial particles from the prior
     if initial_particles == "prior":
 
         initial_position, initial_logZ = sample_from_prior(jax.random.PRNGKey(1), number_of_particles, log_prior_unit, prior_bounds_unit, oversample=5)
 
-
+        initial_logZ = 0
     else:
         initial_position = initial_particles
         
@@ -347,9 +376,77 @@ def run_sharpy(log_likelihood,
 
     #compute evidence and draw iid samples using rejection sampling
     posterior_samples       = draw_iid_samples(smc_dict)
-    # print("the number of samples after rejection sampling is:", len(posterior_samples))
+    logger.info("i.i.d samples and evidence using only SMC samples")
+    logger.info("The number of samples after rejection sampling is: {}".format(len(posterior_samples)))
     logZ, dlogZ             = compute_evidence(smc_dict, initial_logZ = initial_logZ)
-    # print("logZ = {}, dlogZ = {}".format(logZ, dlogZ))
+    logger.info("Estimated log-evidence: {:.4f} ± {:.4f}".format(logZ, dlogZ))
+
+    if use_flow:
+        logger.info("Fitting normalizing flow to final SMC samples...")
+        from coppuccino import normalizing_flows_fit, sample, log_prob
+        from jax.scipy.special import logsumexp
+
+        posterior_samples_from_iterations = np.array(
+            [smc_dict[key]["samples"] for key in list(smc_dict.keys())[-3:]]
+        )
+        posterior_samples_from_iterations = np.concatenate(
+            posterior_samples_from_iterations, axis=0
+        )
+
+        # SMC samples are in unit cube, flow is trained in physical coordinates
+        samples_theta = prior_transform(posterior_samples_from_iterations)
+
+        flow = normalizing_flows_fit(
+            samples_theta,
+            max_epochs=200,
+            rng_seed=42,
+            prior_bounds=prior_bounds,
+        )
+
+        # Fresh physical-space flow samples
+        new_samples = sample(flow, n_samples=10000, rng_seed=42)
+
+        # Physical-space target:
+        # log target(theta) = log L(theta) + log pi(theta)
+        log_like_theta = jnp.ravel(jax.vmap(log_likelihood)(new_samples))
+        log_prior_theta = jnp.ravel(jax.vmap(prior)(new_samples))
+
+        log_target_theta = log_like_theta + log_prior_theta
+
+        # Physical-space flow density.
+        # Prefer coppuccino.log_prob wrapper, not flow.log_prob directly.
+        logq_theta = jnp.ravel(log_prob(flow, new_samples))
+
+        log_weights = log_target_theta - logq_theta
+
+        N = log_weights.shape[0]
+
+        logZ_flow = logsumexp(log_weights) - jnp.log(N)
+
+        weights = jnp.exp(log_weights - logsumexp(log_weights))
+        Ess = 1.0 / jnp.sum(weights**2)
+
+        se_logZ = jnp.sqrt(jnp.maximum(0.0, 1.0 / Ess - 1.0 / N))
+
+        logger.info("Effective sample size of flow samples: {:.2f} / {}".format(float(Ess), N))
+        logger.info(
+            "Estimated log-evidence with flow samples: {:.4f} ± {:.4f}".format(
+                float(logZ_flow), float(se_logZ)
+            )
+        )
+
+        index = jax.random.choice(
+            random.PRNGKey(123),
+            jnp.arange(N),
+            shape=(int(jnp.floor(Ess)),),
+            replace=True,
+            p=weights,
+        )
+
+        resampled_samples = new_samples[index]
+
+
+
 
 
     #save results
@@ -357,7 +454,8 @@ def run_sharpy(log_likelihood,
     result_dict['SMC']      = smc_dict
     result_dict['logZ']     = float(logZ)
     result_dict["dlogZ"]    = float(dlogZ)
-    result_dict['posterior_samples'] = prior_transform(posterior_samples).tolist()
+    result_dict['posterior_samples']        = prior_transform(posterior_samples).tolist()
+    result_dict['resampled_samples']        = resampled_samples.tolist() if use_flow else None
 
     with open(f"{folder}/{label}_result.json", "w") as f:
         json.dump(result_dict, f)
