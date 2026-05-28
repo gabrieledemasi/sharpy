@@ -47,15 +47,46 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
     return mutation_step
 
 
-def build_kernel_fn(kernel, log_posterior, step_size):
+def build_kernel_fn(kernel, log_posterior, step_size, n_nuts_steps=1):
 
-    def _kernel(rng_key, state, beta, metric):
+    def _one_kernel_step(carry, rng_key):
+        state, beta, metric = carry
+
         logdensity_fn = lambda x: log_posterior(x, beta)
-        return kernel(rng_key, state, logdensity_fn, step_size, metric, max_num_doublings=8)
-    # JIT-compile the batched kernel function
-    batched_kernel = jax.jit(vmap_chunked(_kernel, in_axes=(0, 0, 0, 0), chunk_size = 9000, axis_0_is_sharded=False))
-    return batched_kernel
 
+        state, info = kernel(
+            rng_key,
+            state,
+            logdensity_fn,
+            step_size,
+            metric,
+            max_num_doublings=6,
+        )
+
+        return (state, beta, metric), info
+
+    def _kernel(rng_keys, state, beta, metric):
+        """
+        rng_keys shape: (n_nuts_steps, ...)
+        state: one particle state
+        beta: scalar
+        metric: one particle metric
+        """
+        carry = (state, beta, metric)
+        (state, _, _), infos = jax.lax.scan(_one_kernel_step, carry, rng_keys)
+
+        return state, infos
+
+    batched_kernel = jax.jit(
+        vmap_chunked(
+            _kernel,
+            in_axes=(0, 0, 0, 0),
+            chunk_size=9000,
+            axis_0_is_sharded=False,
+        )
+    )
+
+    return batched_kernel
 
 
 
@@ -75,6 +106,22 @@ def multinomial_resample_fn(number_of_particles):
         idx = jnp.searchsorted(cdf, u)
         return particles[idx]
     return multinomial_resample
+
+
+@jax.jit
+def systematic_resample(key, weights):
+    n = weights.shape[0]
+
+    weights = weights / jnp.sum(weights)
+    cdf = jnp.cumsum(weights)
+
+    u0 = jax.random.uniform(key, minval=0.0, maxval=1.0 / n)
+    positions = u0 + jnp.arange(n) / n
+
+    idx = jnp.searchsorted(cdf, positions, side="right")
+    idx = jnp.minimum(idx, n - 1)
+
+    return idx
 
 
 def compute_weight_and_ess_fn(log_likelihood):
@@ -100,7 +147,8 @@ def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess
 
         log_weights, ess                = compute_weight_and_ess(samples, beta, beta_prev)
         weights                         = jnp.exp(log_weights - jax.scipy.special.logsumexp(log_weights))
-        index                           = jax.random.choice(resampling_key, np.arange(len(samples)), (len(samples),), p=weights)
+        # index                           = jax.random.choice(resampling_key, np.arange(len(samples)), (len(samples),), p=weights)
+        index                           = systematic_resample(resampling_key, weights)
         samples                         = samples[index]
         # Mutation
         matrices                        = mass_matrix_fn(samples, beta)
@@ -249,6 +297,7 @@ def run_sharpy(log_likelihood,
             initial_logZ        = 0.0,
             initial_dlogZ       = 0.0,
             use_flow            = False,
+            n_nuts_steps        = 5
             ):
     
 
@@ -271,19 +320,6 @@ def run_sharpy(log_likelihood,
     # u-bounds (cube)
     prior_bounds_unit = jnp.array([[0.0, 1.0]] * prior_bounds.shape[0])
 
-    def log_posterior_unit(u, beta=1.0):
-        q = prior_transform(u)
-        return beta * log_likelihood(q) + prior(q)
-    
-    def log_likelihood_unit(u):
-        theta = prior_transform(u)
-        return log_likelihood(theta)
-    
-
-    def log_prior_unit(u):
-        theta = prior_transform(u)
-        return prior(theta)
-    
 
     def log_abs_det_jacobian_prior_transform(u):
         lo = prior_bounds[:, 0]
@@ -307,7 +343,7 @@ def run_sharpy(log_likelihood,
     #Set up the SMC components
     kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
     mass_matrix_fn              = build_mass_matrix_fn(log_posterior_unit, )
-    kernel_fn                   = build_kernel_fn(kernel, log_posterior_unit, step_size)
+    kernel_fn                   = build_kernel_fn(kernel, log_posterior_unit, step_size, n_nuts_steps=1)
     compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood_unit)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
     mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior_unit)
@@ -353,7 +389,13 @@ def run_sharpy(log_likelihood,
 
 
         resampling_key          = random.split(master_key+42 + step, 1)[0]
-        mutation_key            = random.split(master_key + step, number_of_particles)
+        # mutation_key            = random.split(master_key + step, number_of_particles)
+        
+
+        mutation_key = random.split(
+            master_key + step,
+            number_of_particles * n_nuts_steps,
+        ).reshape(number_of_particles, n_nuts_steps, 2)
 
         #Do a SMC step
         samples, log_weights, ess   = step_for(samples, beta_next, beta_prev, resampling_key, mutation_key)
@@ -404,7 +446,7 @@ def run_sharpy(log_likelihood,
         )
 
         # Fresh physical-space flow samples
-        new_samples = sample(flow, n_samples=10000, rng_seed=42)
+        new_samples = sample(flow, n_samples=1000, rng_seed=42)
 
         # Physical-space target:
         # log target(theta) = log L(theta) + log pi(theta)
