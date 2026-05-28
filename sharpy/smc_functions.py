@@ -40,18 +40,16 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
         # Initialize state
         state           = init_fn(position, logdensity_fn,)
         beta_batch      = jnp.broadcast_to(beta, (position.shape[0],))
-        state, _        = kernel_fn(keys, state,  beta_batch, matrices)
+        state, info       = kernel_fn(keys, state,  beta_batch, matrices)
 
-        return state.position
+        return state.position, info
     
     return mutation_step
 
 
-def build_kernel_fn(kernel, log_posterior, step_size, n_nuts_steps=1):
+def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=6):
 
-    def _one_kernel_step(carry, rng_key):
-        state, beta, metric = carry
-
+    def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
 
         state, info = kernel(
@@ -60,22 +58,10 @@ def build_kernel_fn(kernel, log_posterior, step_size, n_nuts_steps=1):
             logdensity_fn,
             step_size,
             metric,
-            max_num_doublings=6,
+            max_num_doublings=max_num_doublings,
         )
 
-        return (state, beta, metric), info
-
-    def _kernel(rng_keys, state, beta, metric):
-        """
-        rng_keys shape: (n_nuts_steps, ...)
-        state: one particle state
-        beta: scalar
-        metric: one particle metric
-        """
-        carry = (state, beta, metric)
-        (state, _, _), infos = jax.lax.scan(_one_kernel_step, carry, rng_keys)
-
-        return state, infos
+        return state, info
 
     batched_kernel = jax.jit(
         vmap_chunked(
@@ -140,23 +126,24 @@ def compute_weight_and_ess_fn(log_likelihood):
     return compute_weight_and_ess
 
 
-def smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess):
-    
-    # Single SMC step
-    def smc_step(samples, beta,beta_prev, resampling_key, mutation_keys):
+def smc_step_fn(compute_weight_and_ess):
 
-        log_weights, ess                = compute_weight_and_ess(samples, beta, beta_prev)
-        weights                         = jnp.exp(log_weights - jax.scipy.special.logsumexp(log_weights))
-        # index                           = jax.random.choice(resampling_key, np.arange(len(samples)), (len(samples),), p=weights)
-        index                           = systematic_resample(resampling_key, weights)
-        samples                         = samples[index]
-        # Mutation
-        matrices                        = mass_matrix_fn(samples, beta)
-        samples                         = mutation_step_vectorized(samples, mutation_keys, beta, matrices)
+    def smc_step(samples, beta, beta_prev, resampling_key):
 
-        return samples, log_weights, ess
-    
-    return smc_step
+        log_weights, ess = compute_weight_and_ess(samples, beta, beta_prev)
+
+        weights = jnp.exp(log_weights - jax.scipy.special.logsumexp(log_weights))
+
+        index = systematic_resample(resampling_key, weights)
+
+        samples = samples[index]
+
+        return samples, log_weights, ess, index
+
+    return jax.jit(smc_step)
+
+
+
 
 
 
@@ -297,7 +284,7 @@ def run_sharpy(log_likelihood,
             initial_logZ        = 0.0,
             initial_dlogZ       = 0.0,
             use_flow            = False,
-            n_nuts_steps        = 5
+            n_nuts_steps        = 1
             ):
     
 
@@ -343,16 +330,30 @@ def run_sharpy(log_likelihood,
     #Set up the SMC components
     kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
     mass_matrix_fn              = build_mass_matrix_fn(log_posterior_unit, )
-    kernel_fn                   = build_kernel_fn(kernel, log_posterior_unit, step_size, n_nuts_steps=1)
+    
     compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood_unit)
     init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
-    mutation_step_vectorized    = mutation_step_fn(init_fn, kernel_fn, log_posterior_unit)
-    step_for                    = smc_step_fn(mass_matrix_fn, mutation_step_vectorized, compute_weight_and_ess, )
     vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
     vmapped_prior_unit          = jax.jit(jax.vmap(log_prior_unit))
     vmapped_posterior_unit       = jax.jit(jax.vmap(log_posterior_unit))
     smc_dict                    = {}        
 
+
+
+    kernel_fn = build_kernel_fn(
+                    kernel,
+                    log_posterior_unit,
+                    step_size,
+                    max_num_doublings=6,
+                )
+
+    mutation_step_vectorized = mutation_step_fn(
+        init_fn,
+        kernel_fn,
+        log_posterior_unit,
+    )
+
+    step_for = smc_step_fn(compute_weight_and_ess)
     
 
     #Generate initial particles from the prior
@@ -389,17 +390,48 @@ def run_sharpy(log_likelihood,
 
 
         resampling_key          = random.split(master_key+42 + step, 1)[0]
-        # mutation_key            = random.split(master_key + step, number_of_particles)
+        mutation_key            = random.split(master_key + step, number_of_particles)
         
 
-        mutation_key = random.split(
-            master_key + step,
-            number_of_particles * n_nuts_steps,
-        ).reshape(number_of_particles, n_nuts_steps, 2)
+        # mutation_key = random.split(
+        #     master_key + step,
+        #     number_of_particles * n_nuts_steps,
+        # ).reshape(number_of_particles, n_nuts_steps, 2)
 
         #Do a SMC step
-        samples, log_weights, ess   = step_for(samples, beta_next, beta_prev, resampling_key, mutation_key)
-      
+        # Reweight + resample first
+        samples, log_weights, ess, index = step_for(
+            samples,
+            beta_next,
+            beta_prev,
+            resampling_key,
+        )
+
+        # Then multiple NUTS mutations
+        samples_before_mutation = samples
+
+        matrices = mass_matrix_fn(samples, beta_next)  # compute once per SMC stage
+
+        for m in range(n_nuts_steps):
+            mutation_key = random.split(
+                master_key + 10_000 * step + m,
+                number_of_particles,
+            )
+
+            samples, nuts_info = mutation_step_vectorized(
+                samples,
+                mutation_key,
+                beta_next,
+                matrices,
+            )
+            
+
+
+
+
+
+
+
         if jnp.isnan(ess):
             logger.error("ESS is NaN at step {}, beta = {:.4f}. Terminating SMC.".format(step, beta_next))
             return -1
