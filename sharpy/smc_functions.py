@@ -10,6 +10,7 @@ from sharpy.utils import vmap_chunked
 import json
 from corner import corner
 import os
+from sharpy.transform import from_samples_to_probit, from_probit_to_samples, log_abs_det_jacobian_probit_to_samples
 
 import logging
 logging.basicConfig(
@@ -28,7 +29,7 @@ def build_mass_matrix_fn(log_posterior):
         logdensity = lambda x: log_posterior(x, beta)
         return compute_mass_matrix(logdensity, pos)
     #use vmap_chunked to avoid OOM for large number of particles
-    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 1000, axis_0_is_sharded=False)) 
+    return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 100, axis_0_is_sharded=False)) 
 
 
 
@@ -47,7 +48,7 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
     return mutation_step
 
 
-def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=6):
+def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=5):
 
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
@@ -67,7 +68,7 @@ def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=6):
         vmap_chunked(
             _kernel,
             in_axes=(0, 0, 0, 0),
-            chunk_size=9000,
+            chunk_size=1000,
             axis_0_is_sharded=False,
         )
     )
@@ -284,7 +285,9 @@ def run_sharpy(log_likelihood,
             initial_logZ        = 0.0,
             initial_dlogZ       = 0.0,
             use_flow            = False,
-            n_nuts_steps        = 1
+            n_nuts_steps        = 1,
+            bounds_transform    = "probit",
+            probit_bounds       = (-8.0, 8.0),
             ):
     
 
@@ -304,8 +307,15 @@ def run_sharpy(log_likelihood,
         hi = prior_bounds[:, 1]
         return (theta - lo) / (hi - lo)
 
+    bounds_transform = bounds_transform.lower()
+    if bounds_transform not in ("unit", "probit"):
+        raise ValueError("bounds_transform must be either 'unit' or 'probit'.")
+
+    n_dim = prior_bounds.shape[0]
+
     # u-bounds (cube)
-    prior_bounds_unit = jnp.array([[0.0, 1.0]] * prior_bounds.shape[0])
+    prior_bounds_unit = jnp.broadcast_to(jnp.array([0.0, 1.0]), (n_dim, 2))
+    prior_bounds_probit = jnp.broadcast_to(jnp.asarray(probit_bounds), (n_dim, 2))
 
 
     def log_abs_det_jacobian_prior_transform(u):
@@ -326,45 +336,99 @@ def run_sharpy(log_likelihood,
 
     def log_posterior_unit(u, beta=1.0):
         return log_prior_unit(u) + beta * log_likelihood_unit(u)
+    
+
+
+    def probit_transform(theta):
+        """
+        theta in physical space -> z in probit space.
+        """
+        return from_samples_to_probit(theta, prior_bounds, eps=1e-12)
+
+    def inverse_probit_transform(z):
+        """
+        z in probit space -> theta in physical space.
+        """
+        return from_probit_to_samples(z, prior_bounds)
+
+    def log_likelihood_probit(z):
+        theta = inverse_probit_transform(z)
+        return log_likelihood(theta)
+
+    def log_prior_probit(z):
+        theta = inverse_probit_transform(z)
+
+        return (
+            prior(theta)
+            + log_abs_det_jacobian_probit_to_samples(z, prior_bounds)
+        )
+
+    def log_posterior_probit(z, beta=1.0):
+        return log_prior_probit(z) + beta * log_likelihood_probit(z)
+
+    if bounds_transform == "unit":
+        sampling_bounds = prior_bounds_unit
+        to_sampling_space = inverse_prior_transform
+        to_physical_space = prior_transform
+        log_likelihood_sampling = log_likelihood_unit
+        log_prior_sampling = log_prior_unit
+        log_posterior_sampling = log_posterior_unit
+    else:
+        sampling_bounds = prior_bounds_probit
+        to_sampling_space = probit_transform
+        to_physical_space = inverse_probit_transform
+        log_likelihood_sampling = log_likelihood_probit
+        log_prior_sampling = log_prior_probit
+        log_posterior_sampling = log_posterior_probit
 
     #Set up the SMC components
-    kernel                      = blackjax.nuts.build_kernel( prior_bounds_unit, boundary_conditions, integrators.velocity_verlet, divergence_threshold=100 )
-    mass_matrix_fn              = build_mass_matrix_fn(log_posterior_unit, )
-    
-    compute_weight_and_ess      = compute_weight_and_ess_fn(log_likelihood_unit)
-    init_fn                     = (jax.vmap(blackjax.nuts.init, in_axes=(0, None, )))
-    vmapped_likelihood_unit     = jax.jit(jax.vmap(log_likelihood_unit))
-    vmapped_prior_unit          = jax.jit(jax.vmap(log_prior_unit))
-    vmapped_posterior_unit       = jax.jit(jax.vmap(log_posterior_unit))
+    kernel = blackjax.nuts.build_kernel(
+        sampling_bounds,
+        boundary_conditions,
+        integrators.velocity_verlet,
+        divergence_threshold=100,
+    )
+
+    mass_matrix_fn = build_mass_matrix_fn(log_posterior_sampling)
+
+    compute_weight_and_ess = compute_weight_and_ess_fn(log_likelihood_sampling)
+
+    init_fn = jax.vmap(blackjax.nuts.init, in_axes=(0, None))
+
+    vmapped_likelihood_sampling = jax.jit(jax.vmap(log_likelihood_sampling))
+    vmapped_prior_sampling = jax.jit(jax.vmap(log_prior_sampling))
+
+
     smc_dict                    = {}        
 
 
 
     kernel_fn = build_kernel_fn(
-                    kernel,
-                    log_posterior_unit,
-                    step_size,
-                    max_num_doublings=6,
-                )
+        kernel,
+        log_posterior_sampling,
+        step_size,
+        max_num_doublings=6,
+    )
 
     mutation_step_vectorized = mutation_step_fn(
         init_fn,
         kernel_fn,
-        log_posterior_unit,
+        log_posterior_sampling,
     )
 
     step_for = smc_step_fn(compute_weight_and_ess)
     
 
-    #Generate initial particles from the prior
-    if initial_particles == "prior":
+    if isinstance(initial_particles, str) and initial_particles == "prior":
 
-        initial_position, initial_logZ = sample_from_prior(jax.random.PRNGKey(1), number_of_particles, log_prior_unit, prior_bounds_unit, oversample=5)
+        initial_particles, _ = sample_from_prior(master_key,number_of_particles, prior_logprob=prior, bounds=prior_bounds, oversample=5)
 
-        initial_logZ = 0
-    else:
-        initial_position = initial_particles
+        # initial_position = jax.random.uniform(master_key, shape=(number_of_particles, n_dim), minval = prior_bounds[:, 0], maxval=prior_bounds[:, 1])   
+        initial_position  = to_sampling_space(initial_particles)
         
+
+    else:
+        initial_position = to_sampling_space(initial_particles)
 
     
     
@@ -393,13 +457,7 @@ def run_sharpy(log_likelihood,
         mutation_key            = random.split(master_key + step, number_of_particles)
         
 
-        # mutation_key = random.split(
-        #     master_key + step,
-        #     number_of_particles * n_nuts_steps,
-        # ).reshape(number_of_particles, n_nuts_steps, 2)
 
-        #Do a SMC step
-        # Reweight + resample first
         samples, log_weights, ess, index = step_for(
             samples,
             beta_next,
@@ -437,12 +495,19 @@ def run_sharpy(log_likelihood,
             return -1
 
         #Store SMC step results
-        smc_dict[step]["samples"]           = np.array(samples).tolist()
-        smc_dict[step]["log_weights"]       = np.array(log_weights).tolist()
-        smc_dict[step]["ess"]               = float(ess)
-        smc_dict[step]['log_likelihoods']   = np.array(vmapped_likelihood_unit(samples)).tolist()
-        smc_dict[step]['log_prior']         = np.array(vmapped_prior_unit(samples)).tolist()
-        smc_dict[step]['beta']              = float(beta_next)
+        smc_dict[step]["samples"] = np.array(samples).tolist()
+        smc_dict[step]["log_weights"] = np.array(log_weights).tolist()
+        smc_dict[step]["ess"] = float(ess)
+
+        smc_dict[step]["log_likelihoods"] = np.array(
+            vmapped_likelihood_sampling(samples)
+        ).tolist()
+
+        smc_dict[step]["log_prior"] = np.array(
+            vmapped_prior_sampling(samples)
+        ).tolist()
+
+        smc_dict[step]["beta"] = float(beta_next)
         beta_prev                           = beta_next
         step                               += 1
         # print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)
@@ -467,8 +532,7 @@ def run_sharpy(log_likelihood,
             posterior_samples_from_iterations, axis=0
         )
 
-        # SMC samples are in unit cube, flow is trained in physical coordinates
-        samples_theta = prior_transform(posterior_samples_from_iterations)
+        samples_theta = to_physical_space(posterior_samples_from_iterations)
 
         flow = normalizing_flows_fit(
             samples_theta,
@@ -528,14 +592,18 @@ def run_sharpy(log_likelihood,
     result_dict['SMC']      = smc_dict
     result_dict['logZ']     = float(logZ)
     result_dict["dlogZ"]    = float(dlogZ)
-    result_dict['posterior_samples']        = prior_transform(posterior_samples).tolist()
+    result_dict["posterior_samples"] = np.array(
+        to_physical_space(jnp.asarray(posterior_samples))
+    ).tolist()
+    result_dict["bounds_transform"] = bounds_transform
+    result_dict["sampling_space_posterior_samples"] = np.array(posterior_samples).tolist()
+    result_dict[f"{bounds_transform}_posterior_samples"] = np.array(posterior_samples).tolist()
     result_dict['resampled_samples']        = resampled_samples.tolist() if use_flow else None
 
     with open(f"{folder}/{label}_result.json", "w") as f:
         json.dump(result_dict, f)
     
     return result_dict
-
 
 
 
