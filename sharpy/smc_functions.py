@@ -9,7 +9,9 @@ import numpy as np
 from sharpy.utils import vmap_chunked
 import json
 from corner import corner
+from jax.scipy.special import logsumexp
 import os
+from sharpy.utils import local_knn_covariances
 from sharpy.transform import from_samples_to_probit, from_probit_to_samples, log_abs_det_jacobian_probit_to_samples
 
 import logging
@@ -23,13 +25,24 @@ logger = logging.getLogger("SHARPy")
 
 
 
-def build_mass_matrix_fn(log_posterior):
+def build_mass_matrix_fn_hessian(log_posterior):
     #build mass matrix function
     def single(pos, beta):
         logdensity = lambda x: log_posterior(x, beta)
         return compute_mass_matrix(logdensity, pos)
     #use vmap_chunked to avoid OOM for large number of particles
     return jax.jit(vmap_chunked(single, in_axes=(0, None),chunk_size = 100, axis_0_is_sharded=False)) 
+
+
+def build_mass_matrix_fn_knn(log_posterior, k=100):
+    #build mass matrix function using knn
+    def single(pos, beta):
+        _, _, mass_matrix= local_knn_covariances(pos, k=k)
+        # use the same mass matrix for all particles, as in knn-smc
+        mass_matrices = jnp.broadcast_to(mass_matrix, (pos.shape[0], pos.shape[1], pos.shape[1]))
+
+        return mass_matrices
+    return single
 
 
 
@@ -68,7 +81,7 @@ def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=5):
         vmap_chunked(
             _kernel,
             in_axes=(0, 0, 0, 0),
-            chunk_size=1000,
+            chunk_size=100,
             axis_0_is_sharded=False,
         )
     )
@@ -286,8 +299,9 @@ def run_sharpy(log_likelihood,
             initial_dlogZ       = 0.0,
             use_flow            = False,
             n_nuts_steps        = 1,
-            bounds_transform    = "probit",
+            bounds_transform    = "unit",
             probit_bounds       = (-8.0, 8.0),
+            mass_matrix_methods = "hessian", # or knn
             ):
     
 
@@ -389,7 +403,12 @@ def run_sharpy(log_likelihood,
         divergence_threshold=100,
     )
 
-    mass_matrix_fn = build_mass_matrix_fn(log_posterior_sampling)
+    if mass_matrix_methods == "hessian":
+
+         mass_matrix_fn = build_mass_matrix_fn_hessian(log_posterior_sampling)
+    elif mass_matrix_methods == "knn":
+        mass_matrix_fn = build_mass_matrix_fn_knn(log_posterior_sampling, k=1000)
+
 
     compute_weight_and_ess = compute_weight_and_ess_fn(log_likelihood_sampling)
 
@@ -442,15 +461,18 @@ def run_sharpy(log_likelihood,
     beta_next       = initial_beta
     step            = 0
 
+    logZ            = initial_logZ
 
 
 
+    diagnostic = {}
     
     #SMC main loop
     while beta_next < 1.0 - 1e-8:
         beta_next = find_next_beta(compute_weight_and_ess, samples, beta_prev,ess_target= int(number_of_particles * alpha))
         # sys.exit()
         smc_dict[int(step)] = {}
+        diagnostic[int(step)] = {}
 
 
         resampling_key          = random.split(master_key+42 + step, 1)[0]
@@ -464,6 +486,9 @@ def run_sharpy(log_likelihood,
             beta_prev,
             resampling_key,
         )
+
+        incremental_logZ = logsumexp(log_weights) - jnp.log(len(log_weights))
+        logZ += incremental_logZ
 
         # Then multiple NUTS mutations
         samples_before_mutation = samples
@@ -482,12 +507,47 @@ def run_sharpy(log_likelihood,
                 beta_next,
                 matrices,
             )
-            
 
+        mean_acceptance_rate = float(np.mean(nuts_info.acceptance_rate))
+        mean_num_integration_steps = float(np.mean(nuts_info.num_integration_steps))
+        mean_num_trajectory_expansions = float(np.mean(nuts_info.num_trajectory_expansions))
+        num_divergent = int(jnp.count_nonzero(nuts_info.is_divergent))
+        num_turning = int(jnp.count_nonzero(nuts_info.is_turning))  
+        diagnostic[int(step)]["mean_acceptance_rate"] = mean_acceptance_rate
+        diagnostic[int(step)]["mean_num_integration_steps"] = mean_num_integration_steps
+        diagnostic[int(step)]["mean_num_trajectory_expansions"] = mean_num_trajectory_expansions
+        diagnostic[int(step)]["num_divergent"] = num_divergent
+        diagnostic[int(step)]["num_turning"] = num_turning  
+        diagnostic[int(step)]["logZ"] = float(logZ)
+        diagnostic[int(step)]["incremental_logZ"] = float(incremental_logZ)
+            # logger.info("NUTS mutation step %d for SMC step %d", m + 1, step)
 
+            # logger.info(
+            #     "mean acceptance rate = %.3f",
+            #     float(np.mean(nuts_info.acceptance_rate)),
+            # )
 
+            # logger.info(
+            #     "mean number integration steps = %.3f",
+            #     float(np.mean(nuts_info.num_integration_steps)),
+            # )
 
+            # logger.info(
+            #     "mean num_trajectory_expansions = %.3f",
+            #     float(np.mean(nuts_info.num_trajectory_expansions)),
+            # )
 
+            # logger.info(
+            #     "num is_divergent = %d out of %d",
+            #     int(jnp.count_nonzero(nuts_info.is_divergent)),
+            #     len(nuts_info.is_divergent),
+            # )
+
+            # logger.info(
+            #     "num is_turning = %d out of %d",
+            #     int(jnp.count_nonzero(nuts_info.is_turning)),
+            #     len(nuts_info.is_turning),
+            # )
 
 
         if jnp.isnan(ess):
@@ -511,7 +571,7 @@ def run_sharpy(log_likelihood,
         beta_prev                           = beta_next
         step                               += 1
         # print("Completed step {}, beta = {:.4f}, ESS = {:.2f}, ".format(step, beta_next, ess, ), end = "\r", flush = True)
-        logger.info("Completed step {}, beta = {:.4f}, ESS = {:.2f} \r".format(step, beta_next, ess))
+        logger.info("Completed step {}, beta = {:.4f}, ESS = {:.2f}, logZ = {:.2f}, mean_acceptance = {:.2f} \r".format(step, beta_next, ess, logZ, mean_acceptance_rate))
 
     #compute evidence and draw iid samples using rejection sampling
     posterior_samples       = draw_iid_samples(smc_dict)
@@ -520,10 +580,67 @@ def run_sharpy(log_likelihood,
     logZ, dlogZ             = compute_evidence(smc_dict, initial_logZ = initial_logZ)
     logger.info("Estimated log-evidence: {:.4f} ± {:.4f}".format(logZ, dlogZ))
 
+    #save diagnostics plots
+    diagnostic_folder = f"{folder}/diagnostic_plots"
+    if not os.path.exists(diagnostic_folder):
+        os.makedirs(diagnostic_folder)
+    # Plot diagnostics
+    import matplotlib.pyplot as plt
+    number_of_steps = len(smc_dict)
+    steps = np.arange(number_of_steps)
+    betas = [smc_dict[key]["beta"] for key in smc_dict.keys()]
+    ess_values = [smc_dict[key]["ess"] for key in smc_dict.keys()]
+    num_divergent = [diagnostic[key]["num_divergent"] for key in diagnostic.keys()]
+    num_turning = [diagnostic[key]["num_turning"] for key in diagnostic.keys()]
+    mean_acceptance_rate = [diagnostic[key]["mean_acceptance_rate"] for key in diagnostic.keys()]
+    mean_num_integration_steps = [diagnostic[key]["mean_num_integration_steps"] for key in diagnostic.keys()]
+    mean_num_trajectory_expansions = [diagnostic[key]["mean_num_trajectory_expansions"] for key in diagnostic.keys()]   
+    fig, axes = plt.subplots(9, 1, figsize=(10, 30))
+    axes[0].plot(steps, betas, marker="o")
+    axes[0].set_title("Beta schedule")
+    axes[0].set_xlabel("SMC step")
+    axes[0].set_ylabel("Beta")
+    axes[1].plot(steps, ess_values, marker="o")
+    axes[1].set_title("Effective Sample Size (ESS)")
+    axes[1].set_xlabel("SMC step")
+    axes[1].set_ylabel("ESS")
+    axes[2].plot(steps, num_divergent, marker="o")
+    axes[2].set_title("Number of Divergent Transitions")    
+    axes[2].set_xlabel("SMC step")
+    axes[2].set_ylabel("Number of Divergent Transitions")
+    axes[3].plot(steps, num_turning, marker="o")
+    axes[3].set_title("Number of Turning Transitions")    
+    axes[3].set_xlabel("SMC step")
+    axes[3].set_ylabel("Number of Turning Transitions")
+    axes[4].plot(steps, mean_acceptance_rate, marker="o")
+    axes[4].set_title("Mean Acceptance Rate")    
+    axes[4].set_xlabel("SMC step")
+    axes[4].set_ylabel("Mean Acceptance Rate")
+    axes[5].plot(steps, mean_num_integration_steps, marker="o")
+    axes[5].set_title("Mean Number of Integration Steps")    
+    axes[5].set_xlabel("SMC step")
+    axes[5].set_ylabel("Mean Number of Integration Steps")
+    axes[6].plot(steps, mean_num_trajectory_expansions, marker="o")
+    axes[6].set_title("Mean Number of Trajectory Expansions")    
+    axes[6].set_xlabel("SMC step")
+    axes[6].set_ylabel("Mean Number of Trajectory Expansions")
+    axes[7].plot(steps, [diagnostic[key]["logZ"] for key in diagnostic.keys()], marker="o")
+    axes[7].set_title("Estimated log-evidence at each SMC step")
+    axes[7].set_xlabel("SMC step")
+    axes[7].set_ylabel("Estimated log-evidence")
+    axes[8].plot(steps, [diagnostic[key]["incremental_logZ"] for key in diagnostic.keys()], marker="o")
+    axes[8].set_title("Incremental log-evidence at each SMC step")
+    axes[8].set_xlabel("SMC step")
+    axes[8].set_ylabel("Incremental log-evidence")  
+    plt.tight_layout()
+    plt.savefig(f"{diagnostic_folder}/{label}_diagnostics.png")
+    plt.close()
+
+
     if use_flow:
         logger.info("Fitting normalizing flow to final SMC samples...")
         from coppuccino import normalizing_flows_fit, sample, log_prob
-        from jax.scipy.special import logsumexp
+        
 
         posterior_samples_from_iterations = np.array(
             [smc_dict[key]["samples"] for key in list(smc_dict.keys())[-3:]]

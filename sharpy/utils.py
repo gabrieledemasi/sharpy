@@ -19,7 +19,7 @@ def softabs_lambda(lambdas, alpha):
     return lambdas / jnp.tanh(alpha * lambdas)
 
 
-def softabs_metric(H, alpha = 5e-3):
+def softabs_metric(H, alpha = 5e-4):
     """
     Compute the SoftAbs metric tensor given a potential energy function U.
     
@@ -530,3 +530,101 @@ def vmap_chunked(
         return unchunk_tree(ys)
 
     return wrapped
+
+
+def local_knn_covariances(
+    X,
+    weights=None,
+    k=1000,
+    shrinkage=0.1,
+    jitter=1e-5,
+    include_self=True,
+):
+    """
+    Estimate one local covariance matrix per particle using k nearest neighbors.
+
+    Parameters
+    ----------
+    X : array, shape (N, D)
+        Particles.
+
+    weights : array, shape (N,), optional
+        SMC particle weights. If None, uniform weights are used.
+
+    k : int
+        Number of nearest neighbors used for each local covariance.
+
+    shrinkage : float
+        Shrinkage toward isotropic covariance.
+        Useful range: 0.05 to 0.5.
+
+    jitter : float
+        Small diagonal term for numerical stability.
+
+    include_self : bool
+        If True, each particle is included among its own neighbors.
+
+    Returns
+    -------
+    local_means : array, shape (N, D)
+        Local weighted mean around each particle.
+
+    local_covs : array, shape (N, D, D)
+        Local covariance matrix for each particle.
+
+    local_precisions : array, shape (N, D, D)
+        Inverse local covariance matrix for each particle.
+    """
+    N, D = X.shape
+
+    if weights is None:
+        weights = jnp.ones(N) / N
+    else:
+        weights = weights / jnp.sum(weights)
+
+    # Pairwise squared distances: shape (N, N)
+    dists = jnp.sum((X[:, None, :] - X[None, :, :]) ** 2, axis=-1)
+
+    if not include_self:
+        dists = dists + jnp.eye(N) * 1e30
+
+    # Indices of k nearest neighbors for each particle: shape (N, k)
+    knn_idx = jax.lax.top_k(-dists, k)[1]  # (B, k)
+
+    # Neighbor particles: shape (N, k, D)
+    X_knn = X[knn_idx]
+
+    # Neighbor weights: shape (N, k)
+    w_knn = weights[knn_idx]
+    w_knn = w_knn / (jnp.sum(w_knn, axis=1, keepdims=True) + 1e-12)
+
+    # Local weighted mean: shape (N, D)
+    local_means = jnp.sum(w_knn[:, :, None] * X_knn, axis=1)
+
+    # Centered local particles: shape (N, k, D)
+    diff = X_knn - local_means[:, None, :]
+
+    # Local covariance: shape (N, D, D)
+    local_covs = jnp.einsum("nk,nkd,nke->nde", w_knn, diff, diff)
+
+    # Global weighted variance scale for shrinkage target
+    global_mean = jnp.sum(weights[:, None] * X, axis=0)
+    global_diff = X - global_mean
+    global_cov = (weights[:, None] * global_diff).T @ global_diff
+    avg_var = jnp.trace(global_cov) / D
+
+    eye = jnp.eye(D)
+
+    # Shrink local covariance toward isotropic covariance
+    local_covs = (
+        (1.0 - shrinkage) * local_covs
+        + shrinkage * avg_var * eye[None, :, :]
+    )
+
+    # Add jitter
+    local_covs = local_covs + jitter * eye[None, :, :]
+
+    # Local precision matrices
+    local_precisions = jnp.linalg.inv(local_covs)
+
+    return local_means, local_covs, local_precisions
