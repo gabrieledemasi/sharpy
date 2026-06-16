@@ -12,7 +12,14 @@ from corner import corner
 from jax.scipy.special import logsumexp
 import os
 from sharpy.utils import local_knn_covariances
-from sharpy.transform import from_samples_to_probit, from_probit_to_samples, log_abs_det_jacobian_probit_to_samples
+from sharpy.transform import (
+    from_samples_to_probit,
+    from_probit_to_samples,
+    from_samples_to_logit,
+    from_logit_to_samples,
+    log_abs_det_jacobian_probit_to_samples_per_dim,
+    log_abs_det_jacobian_logit_to_samples_per_dim,
+)
 
 import logging
 logging.basicConfig(
@@ -301,6 +308,7 @@ def run_sharpy(log_likelihood,
             n_nuts_steps        = 1,
             bounds_transform    = "unit",
             probit_bounds       = (-8.0, 8.0),
+            logit_bounds        = (-8.0, 8.0),
             mass_matrix_methods = "hessian", # or knn
             ):
     
@@ -310,90 +318,132 @@ def run_sharpy(log_likelihood,
         os.makedirs(folder)
 
 
+    prior_bounds = jnp.asarray(prior_bounds)
+    boundary_conditions = jnp.asarray(boundary_conditions)
+
     #we sample in the unit cube and transform to the original space using the prior bounds
     def prior_transform(u):
+        u = jnp.asarray(u)
         lo = prior_bounds[:, 0]
         hi = prior_bounds[:, 1]
         return lo + u * (hi - lo)
     
     def inverse_prior_transform(theta):
+        theta = jnp.asarray(theta)
         lo = prior_bounds[:, 0]
         hi = prior_bounds[:, 1]
         return (theta - lo) / (hi - lo)
 
     bounds_transform = bounds_transform.lower()
-    if bounds_transform not in ("unit", "probit"):
-        raise ValueError("bounds_transform must be either 'unit' or 'probit'.")
+    if bounds_transform not in ("unit", "probit", "logit"):
+        raise ValueError("bounds_transform must be 'unit', 'probit', or 'logit'.")
 
     n_dim = prior_bounds.shape[0]
+    if boundary_conditions.shape[0] != n_dim:
+        raise ValueError("boundary_conditions must have one entry per dimension.")
+
+    periodic_mask = boundary_conditions.astype(bool)
 
     # u-bounds (cube)
     prior_bounds_unit = jnp.broadcast_to(jnp.array([0.0, 1.0]), (n_dim, 2))
     prior_bounds_probit = jnp.broadcast_to(jnp.asarray(probit_bounds), (n_dim, 2))
+    prior_bounds_logit = jnp.broadcast_to(jnp.asarray(logit_bounds), (n_dim, 2))
 
-
-    def log_abs_det_jacobian_prior_transform(u):
-        lo = prior_bounds[:, 0]
-        hi = prior_bounds[:, 1]
-        return jnp.sum(jnp.log(hi - lo))
-
-
-    def log_likelihood_unit(u):
-        theta = prior_transform(u)
-        return log_likelihood(theta)
-
-
-    def log_prior_unit(u):
-        theta = prior_transform(u)
-        return prior(theta) + log_abs_det_jacobian_prior_transform(u)
-
-
-    def log_posterior_unit(u, beta=1.0):
-        return log_prior_unit(u) + beta * log_likelihood_unit(u)
-    
-
-
-    def probit_transform(theta):
-        """
-        theta in physical space -> z in probit space.
-        """
-        return from_samples_to_probit(theta, prior_bounds, eps=1e-12)
-
-    def inverse_probit_transform(z):
-        """
-        z in probit space -> theta in physical space.
-        """
-        return from_probit_to_samples(z, prior_bounds)
-
-    def log_likelihood_probit(z):
-        theta = inverse_probit_transform(z)
-        return log_likelihood(theta)
-
-    def log_prior_probit(z):
-        theta = inverse_probit_transform(z)
-
-        return (
-            prior(theta)
-            + log_abs_det_jacobian_probit_to_samples(z, prior_bounds)
-        )
-
-    def log_posterior_probit(z, beta=1.0):
-        return log_prior_probit(z) + beta * log_likelihood_probit(z)
 
     if bounds_transform == "unit":
         sampling_bounds = prior_bounds_unit
-        to_sampling_space = inverse_prior_transform
-        to_physical_space = prior_transform
-        log_likelihood_sampling = log_likelihood_unit
-        log_prior_sampling = log_prior_unit
-        log_posterior_sampling = log_posterior_unit
+    elif bounds_transform == "probit":
+        sampling_bounds = jnp.where(
+            periodic_mask[:, None],
+            prior_bounds_unit,
+            prior_bounds_probit,
+        )
     else:
-        sampling_bounds = prior_bounds_probit
-        to_sampling_space = probit_transform
-        to_physical_space = inverse_probit_transform
-        log_likelihood_sampling = log_likelihood_probit
-        log_prior_sampling = log_prior_probit
-        log_posterior_sampling = log_posterior_probit
+        sampling_bounds = jnp.where(
+            periodic_mask[:, None],
+            prior_bounds_unit,
+            prior_bounds_logit,
+        )
+
+
+    def to_sampling_space(theta):
+        """
+        Physical-space theta -> sampler coordinates.
+
+        Periodic dimensions stay in unit coordinates for transformed runs.
+        """
+        u = inverse_prior_transform(theta)
+
+        if bounds_transform == "unit":
+            return u
+
+        if bounds_transform == "probit":
+            z = from_samples_to_probit(theta, prior_bounds, eps=1e-12)
+        else:
+            z = from_samples_to_logit(theta, prior_bounds, eps=1e-12)
+
+        return jnp.where(periodic_mask, u, z)
+
+
+    def to_physical_space(position):
+        """
+        Sampler coordinates -> physical-space theta.
+
+        Periodic dimensions are interpreted as unit coordinates for
+        transformed runs.
+        """
+        if bounds_transform == "unit":
+            return prior_transform(position)
+
+        theta_unit = prior_transform(position)
+
+        if bounds_transform == "probit":
+            theta_transformed = from_probit_to_samples(position, prior_bounds)
+        else:
+            theta_transformed = from_logit_to_samples(position, prior_bounds)
+
+        return jnp.where(periodic_mask, theta_unit, theta_transformed)
+
+
+    def log_abs_det_jacobian_sampling_to_physical(position):
+        position = jnp.asarray(position)
+        lo = prior_bounds[:, 0]
+        hi = prior_bounds[:, 1]
+        log_width = jnp.log(hi - lo)
+
+        if bounds_transform == "unit":
+            log_det_per_dim = jnp.broadcast_to(log_width, position.shape)
+        elif bounds_transform == "probit":
+            log_det_per_dim = log_abs_det_jacobian_probit_to_samples_per_dim(
+                position,
+                prior_bounds,
+            )
+        else:
+            log_det_per_dim = log_abs_det_jacobian_logit_to_samples_per_dim(
+                position,
+                prior_bounds,
+            )
+
+        log_det_per_dim = jnp.where(
+            periodic_mask,
+            log_width,
+            log_det_per_dim,
+        )
+        return jnp.sum(log_det_per_dim, axis=-1)
+
+
+    def log_likelihood_sampling(position):
+        theta = to_physical_space(position)
+        return log_likelihood(theta)
+
+
+    def log_prior_sampling(position):
+        theta = to_physical_space(position)
+        return prior(theta) + log_abs_det_jacobian_sampling_to_physical(position)
+
+
+    def log_posterior_sampling(position, beta=1.0):
+        return log_prior_sampling(position) + beta * log_likelihood_sampling(position)
 
     #Set up the SMC components
     kernel = blackjax.nuts.build_kernel(
@@ -721,8 +771,6 @@ def run_sharpy(log_likelihood,
         json.dump(result_dict, f)
     
     return result_dict
-
-
 
 
 

@@ -1,5 +1,6 @@
 from jax.scipy.special import ndtri, ndtr
 from jax.scipy.stats import norm
+from jax.nn import sigmoid, softplus
 import jax.numpy as jnp
 
 def _get_lower_upper(prior_bounds):
@@ -57,6 +58,39 @@ def from_probit_to_samples(z, prior_bounds):
     return from_unit_interval_to_bounds(u, prior_bounds)
 
 
+def from_samples_to_logit(theta, prior_bounds, eps=1e-12):
+    """
+    theta -> z
+
+    theta is in physical bounded space.
+    z is in unconstrained logit space.
+    """
+    u = from_bounds_to_unit_interval(theta, prior_bounds, eps=eps)
+    return jnp.log(u) - jnp.log1p(-u)
+
+
+def from_logit_to_samples(z, prior_bounds):
+    """
+    z -> theta
+
+    z is unconstrained.
+    theta is in physical bounded space.
+    """
+    z = jnp.asarray(z)
+    u = sigmoid(z)
+    return from_unit_interval_to_bounds(u, prior_bounds)
+
+
+def log_abs_det_jacobian_probit_to_samples_per_dim(z, prior_bounds):
+    """
+    Per-dimension log |d theta_i / dz_i| for the probit transform.
+    """
+    z = jnp.asarray(z)
+    lower, upper = _get_lower_upper(prior_bounds)
+
+    return jnp.log(upper - lower) + norm.logpdf(z)
+
+
 def log_abs_det_jacobian_probit_to_samples(z, prior_bounds):
     """
     log |d theta / dz|
@@ -65,11 +99,32 @@ def log_abs_det_jacobian_probit_to_samples(z, prior_bounds):
 
     d theta_i / dz_i = (upper_i - lower_i) phi(z_i)
     """
+    return jnp.sum(
+        log_abs_det_jacobian_probit_to_samples_per_dim(z, prior_bounds),
+        axis=-1,
+    )
+
+
+def log_abs_det_jacobian_logit_to_samples_per_dim(z, prior_bounds):
+    """
+    Per-dimension log |d theta_i / dz_i| for the logit transform.
+    """
     z = jnp.asarray(z)
     lower, upper = _get_lower_upper(prior_bounds)
 
+    return jnp.log(upper - lower) - softplus(-z) - softplus(z)
+
+
+def log_abs_det_jacobian_logit_to_samples(z, prior_bounds):
+    """
+    log |d theta / dz|
+
+    theta_i = lower_i + (upper_i - lower_i) sigmoid(z_i)
+
+    d theta_i / dz_i = (upper_i - lower_i) sigmoid(z_i) (1 - sigmoid(z_i))
+    """
     return jnp.sum(
-        jnp.log(upper - lower) + norm.logpdf(z),
+        log_abs_det_jacobian_logit_to_samples_per_dim(z, prior_bounds),
         axis=-1,
     )
 
@@ -80,3 +135,11 @@ def log_abs_det_jacobian_samples_to_probit(theta, prior_bounds, eps=1e-12):
     """
     z = from_samples_to_probit(theta, prior_bounds, eps=eps)
     return -log_abs_det_jacobian_probit_to_samples(z, prior_bounds)
+
+
+def log_abs_det_jacobian_samples_to_logit(theta, prior_bounds, eps=1e-12):
+    """
+    log |dz / d theta|
+    """
+    z = from_samples_to_logit(theta, prior_bounds, eps=eps)
+    return -log_abs_det_jacobian_logit_to_samples(z, prior_bounds)
