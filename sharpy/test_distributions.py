@@ -9,7 +9,7 @@ def bimodal_gaussian_mixture(mean_1, mean_2, sigma, weight = 0.5, dimensions = 1
         mean2   = jnp.ones(dimensions) * mean_2
         
         cov1     = jnp.eye(dimensions) * sigma
-        cov2     = jnp.eye(dimensions) * sigma * 4
+        cov2     = jnp.eye(dimensions) * sigma 
         inv_cov1 = jnp.linalg.inv(cov1)
         inv_cov2 = jnp.linalg.inv(cov2)
         

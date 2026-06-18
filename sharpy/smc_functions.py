@@ -68,27 +68,47 @@ def mutation_step_fn(init_fn, kernel_fn,log_posterior):
     return mutation_step
 
 
-def build_kernel_fn(kernel, log_posterior, step_size, max_num_doublings=5):
+def build_kernel_fn(kernel, log_posterior, step_size,gradient_based_kernel, num_integration_steps=10,max_num_doublings=6):
+    
 
     def _kernel(rng_key, state, beta, metric):
         logdensity_fn = lambda x: log_posterior(x, beta)
 
-        state, info = kernel(
-            rng_key,
-            state,
-            logdensity_fn,
-            step_size,
-            metric,
-            max_num_doublings=max_num_doublings,
-        )
+        if gradient_based_kernel == "nuts":
 
-        return state, info
+            state, info = kernel(
+                rng_key,
+                state,
+                logdensity_fn,
+                step_size,
+                metric,
+                max_num_doublings=max_num_doublings, 
+            )
+
+            return state, info
+        
+
+        if gradient_based_kernel == "hmc":
+
+            state, info = kernel(
+                rng_key,
+                state,
+                logdensity_fn,
+                step_size,
+                metric,
+                num_integration_steps = num_integration_steps
+            )
+
+            return state, info
+    
+
+
 
     batched_kernel = jax.jit(
         vmap_chunked(
             _kernel,
             in_axes=(0, 0, 0, 0),
-            chunk_size=100,
+            chunk_size=1000,
             axis_0_is_sharded=False,
         )
     )
@@ -310,6 +330,8 @@ def run_sharpy(log_likelihood,
             probit_bounds       = (-8.0, 8.0),
             logit_bounds        = (-8.0, 8.0),
             mass_matrix_methods = "hessian", # or knn
+            gradient_based_kernel = "nuts", 
+
             ):
     
 
@@ -446,12 +468,25 @@ def run_sharpy(log_likelihood,
         return log_prior_sampling(position) + beta * log_likelihood_sampling(position)
 
     #Set up the SMC components
-    kernel = blackjax.nuts.build_kernel(
-        sampling_bounds,
-        boundary_conditions,
-        integrators.velocity_verlet,
-        divergence_threshold=100,
-    )
+    if gradient_based_kernel == "nuts":
+
+        init_fn = jax.vmap(blackjax.nuts.init, in_axes=(0, None))
+        kernel = blackjax.nuts.build_kernel(
+            sampling_bounds,
+            boundary_conditions,
+            integrators.velocity_verlet,
+            divergence_threshold=100,
+        )
+    if gradient_based_kernel == "hmc":
+        init_fn = jax.vmap(blackjax.hmc.init, in_axes=(0, None))
+        kernel = blackjax.hmc.build_kernel(
+            sampling_bounds,
+            boundary_conditions,
+            integrators.velocity_verlet,
+            divergence_threshold=100,
+        )
+
+
 
     if mass_matrix_methods == "hessian":
 
@@ -462,7 +497,9 @@ def run_sharpy(log_likelihood,
 
     compute_weight_and_ess = compute_weight_and_ess_fn(log_likelihood_sampling)
 
-    init_fn = jax.vmap(blackjax.nuts.init, in_axes=(0, None))
+
+
+    
 
     vmapped_likelihood_sampling = jax.jit(jax.vmap(log_likelihood_sampling))
     vmapped_prior_sampling = jax.jit(jax.vmap(log_prior_sampling))
@@ -476,7 +513,9 @@ def run_sharpy(log_likelihood,
         kernel,
         log_posterior_sampling,
         step_size,
-        max_num_doublings=6,
+        max_num_doublings           = 6,
+        num_integration_steps       = 10, 
+        gradient_based_kernel       = gradient_based_kernel
     )
 
     mutation_step_vectorized = mutation_step_fn(
@@ -542,8 +581,19 @@ def run_sharpy(log_likelihood,
 
         # Then multiple NUTS mutations
         samples_before_mutation = samples
+        sub_set_samples = samples_before_mutation[::10]  # take a subset of samples to compute the mass matrix
+        matrices = mass_matrix_fn(sub_set_samples, beta_next)  # compute once per SMC stage
 
-        matrices = mass_matrix_fn(samples, beta_next)  # compute once per SMC stage
+
+
+        lambdas, V = jnp.linalg.eigh(matrices)
+        median_lambda = jnp.median(lambdas, axis=0)
+        # print("median_lambda", median_lambda)
+        median_V  = jnp.median(V, axis=0)
+
+        median_matrix = median_V @ jnp.diag(median_lambda) @ median_V.T
+        # matrix = jnp.co
+        matrices  = jnp.broadcast_to(median_matrix, (samples.shape[0], median_matrix.shape[0], median_matrix.shape[1]))
 
         for m in range(n_nuts_steps):
             mutation_key = random.split(
@@ -559,15 +609,15 @@ def run_sharpy(log_likelihood,
             )
 
         mean_acceptance_rate = float(np.mean(nuts_info.acceptance_rate))
-        mean_num_integration_steps = float(np.mean(nuts_info.num_integration_steps))
-        mean_num_trajectory_expansions = float(np.mean(nuts_info.num_trajectory_expansions))
-        num_divergent = int(jnp.count_nonzero(nuts_info.is_divergent))
-        num_turning = int(jnp.count_nonzero(nuts_info.is_turning))  
+        # mean_num_integration_steps = float(np.mean(nuts_info.num_integration_steps))
+        # mean_num_trajectory_expansions = float(np.mean(nuts_info.num_trajectory_expansions))
+        # num_divergent = int(jnp.count_nonzero(nuts_info.is_divergent))
+        # num_turning = int(jnp.count_nonzero(nuts_info.is_turning))  
         diagnostic[int(step)]["mean_acceptance_rate"] = mean_acceptance_rate
-        diagnostic[int(step)]["mean_num_integration_steps"] = mean_num_integration_steps
-        diagnostic[int(step)]["mean_num_trajectory_expansions"] = mean_num_trajectory_expansions
-        diagnostic[int(step)]["num_divergent"] = num_divergent
-        diagnostic[int(step)]["num_turning"] = num_turning  
+        # diagnostic[int(step)]["mean_num_integration_steps"] = mean_num_integration_steps
+        # diagnostic[int(step)]["mean_num_trajectory_expansions"] = mean_num_trajectory_expansions
+        # diagnostic[int(step)]["num_divergent"] = num_divergent
+        # diagnostic[int(step)]["num_turning"] = num_turning  
         diagnostic[int(step)]["logZ"] = float(logZ)
         diagnostic[int(step)]["incremental_logZ"] = float(incremental_logZ)
             # logger.info("NUTS mutation step %d for SMC step %d", m + 1, step)
@@ -640,11 +690,11 @@ def run_sharpy(log_likelihood,
     steps = np.arange(number_of_steps)
     betas = [smc_dict[key]["beta"] for key in smc_dict.keys()]
     ess_values = [smc_dict[key]["ess"] for key in smc_dict.keys()]
-    num_divergent = [diagnostic[key]["num_divergent"] for key in diagnostic.keys()]
-    num_turning = [diagnostic[key]["num_turning"] for key in diagnostic.keys()]
+    # num_divergent = [diagnostic[key]["num_divergent"] for key in diagnostic.keys()]
+    # num_turning = [diagnostic[key]["num_turning"] for key in diagnostic.keys()]
     mean_acceptance_rate = [diagnostic[key]["mean_acceptance_rate"] for key in diagnostic.keys()]
-    mean_num_integration_steps = [diagnostic[key]["mean_num_integration_steps"] for key in diagnostic.keys()]
-    mean_num_trajectory_expansions = [diagnostic[key]["mean_num_trajectory_expansions"] for key in diagnostic.keys()]   
+    # mean_num_integration_steps = [diagnostic[key]["mean_num_integration_steps"] for key in diagnostic.keys()]
+    # mean_num_trajectory_expansions = [diagnostic[key]["mean_num_trajectory_expansions"] for key in diagnostic.keys()]   
     fig, axes = plt.subplots(9, 1, figsize=(10, 30))
     axes[0].plot(steps, betas, marker="o")
     axes[0].set_title("Beta schedule")
@@ -654,26 +704,26 @@ def run_sharpy(log_likelihood,
     axes[1].set_title("Effective Sample Size (ESS)")
     axes[1].set_xlabel("SMC step")
     axes[1].set_ylabel("ESS")
-    axes[2].plot(steps, num_divergent, marker="o")
-    axes[2].set_title("Number of Divergent Transitions")    
-    axes[2].set_xlabel("SMC step")
-    axes[2].set_ylabel("Number of Divergent Transitions")
-    axes[3].plot(steps, num_turning, marker="o")
-    axes[3].set_title("Number of Turning Transitions")    
-    axes[3].set_xlabel("SMC step")
-    axes[3].set_ylabel("Number of Turning Transitions")
+    # axes[2].plot(steps, num_divergent, marker="o")
+    # axes[2].set_title("Number of Divergent Transitions")    
+    # axes[2].set_xlabel("SMC step")
+    # axes[2].set_ylabel("Number of Divergent Transitions")
+    # axes[3].plot(steps, num_turning, marker="o")
+    # axes[3].set_title("Number of Turning Transitions")    
+    # axes[3].set_xlabel("SMC step")
+    # axes[3].set_ylabel("Number of Turning Transitions")
     axes[4].plot(steps, mean_acceptance_rate, marker="o")
     axes[4].set_title("Mean Acceptance Rate")    
     axes[4].set_xlabel("SMC step")
     axes[4].set_ylabel("Mean Acceptance Rate")
-    axes[5].plot(steps, mean_num_integration_steps, marker="o")
-    axes[5].set_title("Mean Number of Integration Steps")    
-    axes[5].set_xlabel("SMC step")
-    axes[5].set_ylabel("Mean Number of Integration Steps")
-    axes[6].plot(steps, mean_num_trajectory_expansions, marker="o")
-    axes[6].set_title("Mean Number of Trajectory Expansions")    
-    axes[6].set_xlabel("SMC step")
-    axes[6].set_ylabel("Mean Number of Trajectory Expansions")
+    # axes[5].plot(steps, mean_num_integration_steps, marker="o")
+    # axes[5].set_title("Mean Number of Integration Steps")    
+    # axes[5].set_xlabel("SMC step")
+    # axes[5].set_ylabel("Mean Number of Integration Steps")
+    # axes[6].plot(steps, mean_num_trajectory_expansions, marker="o")
+    # axes[6].set_title("Mean Number of Trajectory Expansions")    
+    # axes[6].set_xlabel("SMC step")
+    # axes[6].set_ylabel("Mean Number of Trajectory Expansions")
     axes[7].plot(steps, [diagnostic[key]["logZ"] for key in diagnostic.keys()], marker="o")
     axes[7].set_title("Estimated log-evidence at each SMC step")
     axes[7].set_xlabel("SMC step")
