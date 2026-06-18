@@ -62,9 +62,9 @@ prior_bounds            = jnp.array([[0., 2*jnp.pi], [-jnp.pi/2, jnp.pi/2], [4.9
 boundary_conditions     = jnp.array([1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]) #1: periodic, 0: reflective
 
 
-number_of_particles     = 9000
+number_of_particles     = 1000
 step_size               = 0.3
-alpha                   = 0.95
+alpha                   = 0.7
 
 
 
@@ -95,6 +95,7 @@ result_dict = run_sharpy(log_likelihood,
                     jax.random.PRNGKey(42),
                     folder = ".",
                     label = "run",
+                    gradient_based_kernel="hmc"
 
                                             
                                                 )

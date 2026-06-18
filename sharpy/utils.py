@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 
 
-
+jax.config.update("jax_enable_x64", True)   
 #MASS MATRIX utils
 
 def softabs_lambda(lambdas, alpha):
@@ -628,3 +628,210 @@ def local_knn_covariances(
     local_precisions = jnp.linalg.inv(local_covs)
 
     return local_means, local_covs, local_precisions
+
+
+
+from typing import Sequence, NamedTuple, Any
+
+def esjd_weights_from_hmc_info(
+    current_samples,
+    nuts_info,
+    mass_matrix,
+    epsilons,
+    Ls=None,
+    particle_weights=None,
+    cost_normalize=True,
+    use_acceptance_rate=False,
+    ignore_divergent=True,
+    temperature=1.0,
+    ridge=1e-10,
+):
+    """
+    ESJD weights when there is one tuning candidate (epsilon_i, L_i)
+    associated with each particle i.
+
+    Shapes
+    ------
+    current_samples:                 (N, d)
+    nuts_info.proposal.position:      (N, d)
+    nuts_info.acceptance_rate:        (N,)
+    nuts_info.is_divergent:           (N,)
+    epsilons:                         (N,)
+    Ls:                               (N,)
+
+    Returns weights over the N candidate pairs:
+        (epsilons[i], Ls[i])
+    """
+
+    current_samples = np.asarray(current_samples)
+    proposal_position = np.asarray(nuts_info.proposal.position)
+    mass_matrix = np.asarray(mass_matrix)
+    epsilons = np.asarray(epsilons, dtype=float)
+
+    if current_samples.ndim != 2:
+        raise ValueError("current_samples must have shape (N, d).")
+
+    N, d = current_samples.shape
+
+    if proposal_position.shape != (N, d):
+        raise ValueError(
+            f"nuts_info.proposal.position must have shape {(N, d)}, "
+            f"got {proposal_position.shape}."
+        )
+
+    if epsilons.shape != (N,):
+        raise ValueError(f"epsilons must have shape {(N,)}, got {epsilons.shape}.")
+
+    if mass_matrix.shape != (d, d):
+        raise ValueError(f"mass_matrix must have shape {(d, d)}.")
+
+    if particle_weights is None:
+        particle_weights = np.ones(N)
+    else:
+        particle_weights = np.asarray(particle_weights, dtype=float)
+        if particle_weights.shape != (N,):
+            raise ValueError(
+                f"particle_weights must have shape {(N,)}, "
+                f"got {particle_weights.shape}."
+            )
+
+    if Ls is None:
+        Ls = np.asarray(nuts_info.num_integration_steps, dtype=float)
+    else:
+        Ls = np.asarray(Ls, dtype=float)
+
+    if Ls.shape == ():
+        Ls = np.full(N, float(Ls))
+
+    if Ls.shape != (N,):
+        raise ValueError(f"Ls must have shape {(N,)}, got {Ls.shape}.")
+
+    inv_mass_matrix = np.linalg.inv(
+        mass_matrix + ridge * np.eye(d)
+    )
+
+    diff = proposal_position - current_samples
+
+    # sq_jump[i] = diff[i]^T M^{-1} diff[i]
+    sq_jump = np.einsum("nd,dd,nd->n", diff, inv_mass_matrix, diff)
+
+    contribution = sq_jump.copy()
+
+    if use_acceptance_rate:
+        acceptance_rate = np.asarray(nuts_info.acceptance_rate, dtype=float)
+
+        if acceptance_rate.shape == ():
+            acceptance_rate = np.full(N, float(acceptance_rate))
+
+        if acceptance_rate.shape != (N,):
+            raise ValueError(
+                f"acceptance_rate must have shape {(N,)}, "
+                f"got {acceptance_rate.shape}."
+            )
+
+        contribution *= acceptance_rate
+
+    if ignore_divergent:
+        is_divergent = np.asarray(nuts_info.is_divergent)
+
+        if is_divergent.shape == ():
+            is_divergent = np.full(N, bool(is_divergent))
+
+        if is_divergent.shape != (N,):
+            raise ValueError(
+                f"is_divergent must have shape {(N,)}, "
+                f"got {is_divergent.shape}."
+            )
+
+        contribution = np.where(is_divergent, 0.0, contribution)
+
+    # Optional SMC weighting.
+    # This means a tuning pair proposed by an important particle gets
+    # proportionally more influence.
+    esjd = particle_weights * contribution
+
+    if cost_normalize:
+        score = esjd / np.maximum(Ls, 1.0)
+    else:
+        score = esjd.copy()
+
+    if temperature <= 0:
+        raise ValueError("temperature must be positive.")
+
+    scaled_score = score / temperature
+    scaled_score -= np.max(scaled_score)
+
+    raw_weights = np.exp(scaled_score)
+
+    if raw_weights.sum() <= 0 or not np.all(np.isfinite(raw_weights)):
+        weights = np.ones(N) / N
+    else:
+        weights = raw_weights / raw_weights.sum()
+
+    best_index = int(np.argmax(score))
+
+    return {
+        "epsilons": epsilons,
+        "Ls": Ls.astype(int),
+        "sq_jump": sq_jump,
+        "esjd": esjd,
+        "score": score,
+        "weights": weights,
+        "best_epsilon": float(epsilons[best_index]),
+        "best_L": int(Ls[best_index]),
+        "best_index": best_index,
+    }
+
+
+
+
+@jax.jit
+def jitter_epsilon_L(
+    key,
+    step_sizes,
+    lenghts,
+    epsilon_min,
+    epsilon_max,
+    L_min,
+    L_max,
+    epsilon_jitter_scale=0.10,
+    L_jitter_width=2,
+):
+    """
+    Small jitter move for tuning particles (epsilon, L).
+
+    epsilon is moved with a log-normal random walk.
+    L is moved with a small integer random walk.
+    """
+
+    key_eps, key_L = jax.random.split(key)
+
+    # Log-scale jitter for epsilon
+    step_sizes = step_sizes * jnp.exp(
+        epsilon_jitter_scale
+        * jax.random.normal(key_eps, shape=step_sizes.shape)
+    )
+
+    step_sizes = jnp.clip(
+        step_sizes,
+        epsilon_min,
+        epsilon_max,
+    )
+
+    # Integer jitter for L
+    L_noise = jax.random.randint(
+        key_L,
+        shape=lenghts.shape,
+        minval=-L_jitter_width,
+        maxval=L_jitter_width + 1,
+    )
+
+    lenghts = lenghts + L_noise
+
+    lenghts = jnp.clip(
+        lenghts,
+        L_min,
+        L_max,
+    ).astype(jnp.int32)
+
+    return step_sizes, lenghts

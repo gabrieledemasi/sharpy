@@ -21,6 +21,8 @@ from sharpy.transform import (
     log_abs_det_jacobian_logit_to_samples_per_dim,
 )
 
+from sharpy.utils import esjd_weights_from_hmc_info, jitter_epsilon_L
+
 import logging
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +30,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("SHARPy")
+
+import matplotlib.pyplot as plt
 
 
 
@@ -55,13 +59,13 @@ def build_mass_matrix_fn_knn(log_posterior, k=100):
 
 def mutation_step_fn(init_fn, kernel_fn,log_posterior):
     #build mutation step with NUTS kernel
-    def mutation_step(position, keys, beta, matrices):
+    def mutation_step(position, keys,step_sizes, integration_lenghts, beta, matrices):
 
         logdensity_fn   = lambda x: log_posterior(x, beta)  # Only for init, not passed into JIT
         # Initialize state
         state           = init_fn(position, logdensity_fn,)
         beta_batch      = jnp.broadcast_to(beta, (position.shape[0],))
-        state, info       = kernel_fn(keys, state,  beta_batch, matrices)
+        state, info       = kernel_fn(keys, state, step_sizes, integration_lenghts, beta_batch, matrices)
 
         return state.position, info
     
@@ -115,6 +119,18 @@ def build_kernel_fn(kernel, log_posterior, step_size,gradient_based_kernel, num_
 
     return batched_kernel
 
+
+
+
+def return_kernel_fn_builder(gradient_based_kernel):
+    if gradient_based_kernel == "nuts":
+        from sharpy.transition_kernels import build_nuts_kernel_fn
+        return build_nuts_kernel_fn
+    elif gradient_based_kernel == "hmc":
+        from sharpy.transition_kernels import build_hmc_kernel_fn
+        return build_hmc_kernel_fn
+    else:
+        raise ValueError("gradient_based_kernel must be 'nuts' or 'hmc'.")
 
 
 @jax.jit
@@ -330,10 +346,13 @@ def run_sharpy(log_likelihood,
             probit_bounds       = (-8.0, 8.0),
             logit_bounds        = (-8.0, 8.0),
             mass_matrix_methods = "hessian", # or knn
-            gradient_based_kernel = "nuts", 
+            gradient_based_kernel = "hmc", 
+            L_range               = [5, 15],
+            epsilon_range         = [0.1, 0.5]
 
             ):
     
+
 
 
     if not os.path.exists(folder):
@@ -509,13 +528,18 @@ def run_sharpy(log_likelihood,
 
 
 
+    build_kernel_fn  = return_kernel_fn_builder(gradient_based_kernel)
+
+
+
+
     kernel_fn = build_kernel_fn(
         kernel,
         log_posterior_sampling,
-        step_size,
-        max_num_doublings           = 6,
-        num_integration_steps       = 10, 
-        gradient_based_kernel       = gradient_based_kernel
+        # step_size,
+        # max_num_doublings           = 6,
+        # num_integration_steps       = 10, 
+        # gradient_based_kernel       = gradient_based_kernel
     )
 
     mutation_step_vectorized = mutation_step_fn(
@@ -555,13 +579,27 @@ def run_sharpy(log_likelihood,
 
 
     diagnostic = {}
-    
+
+
     #SMC main loop
     while beta_next < 1.0 - 1e-8:
         beta_next = find_next_beta(compute_weight_and_ess, samples, beta_prev,ess_target= int(number_of_particles * alpha))
         # sys.exit()
         smc_dict[int(step)] = {}
         diagnostic[int(step)] = {}
+        #save list of stepsizes and lenghts for this SMC step
+        # LE_dict[int(step)] = {
+        #     "step_sizes": step_sizes.tolist(),
+        #     "lenghts": lenghts.tolist(),
+
+
+
+
+        # }
+
+        tuning_key    = random.split(master_key + step, 1)[0]
+        lenghts       = jax.random.randint(tuning_key, shape=(number_of_particles,), minval=L_range[0], maxval=L_range[1])
+        step_sizes    = jax.random.uniform(tuning_key, shape=(number_of_particles,), minval=epsilon_range[0], maxval=epsilon_range[1])
 
 
         resampling_key          = random.split(master_key+42 + step, 1)[0]
@@ -581,19 +619,19 @@ def run_sharpy(log_likelihood,
 
         # Then multiple NUTS mutations
         samples_before_mutation = samples
-        sub_set_samples = samples_before_mutation[::10]  # take a subset of samples to compute the mass matrix
-        matrices = mass_matrix_fn(sub_set_samples, beta_next)  # compute once per SMC stage
+        # sub_set_samples = samples_before_mutation[::10]  # take a subset of samples to compute the mass matrix
+        # matrices = mass_matrix_fn(sub_set_samples, beta_next)  # compute once per SMC stage
+        matrices = mass_matrix_fn(samples_before_mutation, beta_next)  # compute once per SMC stage
 
 
+        # lambdas, V = jnp.linalg.eigh(matrices)
+        # median_lambda = jnp.median(lambdas, axis=0)
+        # # print("median_lambda", median_lambda)
+        # median_V  = jnp.median(V, axis=0)
 
-        lambdas, V = jnp.linalg.eigh(matrices)
-        median_lambda = jnp.median(lambdas, axis=0)
-        # print("median_lambda", median_lambda)
-        median_V  = jnp.median(V, axis=0)
-
-        median_matrix = median_V @ jnp.diag(median_lambda) @ median_V.T
-        # matrix = jnp.co
-        matrices  = jnp.broadcast_to(median_matrix, (samples.shape[0], median_matrix.shape[0], median_matrix.shape[1]))
+        # median_matrix = median_V @ jnp.diag(median_lambda) @ median_V.T
+        # # matrix = jnp.co
+        # matrices  = jnp.broadcast_to(median_matrix, (samples.shape[0], median_matrix.shape[0], median_matrix.shape[1]))
 
         for m in range(n_nuts_steps):
             mutation_key = random.split(
@@ -604,10 +642,69 @@ def run_sharpy(log_likelihood,
             samples, nuts_info = mutation_step_vectorized(
                 samples,
                 mutation_key,
+                step_sizes,
+                lenghts,
                 beta_next,
                 matrices,
             )
 
+
+        
+
+        # out = esjd_weights_from_hmc_info(
+        #             current_samples=samples_before_mutation,
+        #             nuts_info=nuts_info,
+        #             mass_matrix=matrices[0],
+        #             epsilons=step_sizes,  # or None if nuts_info.epsilons has shape (N,)
+        #             Ls=lenghts,  # or None if nuts_info.Ls has shape (N,)
+        #             particle_weights=jnp.exp(log_weights - logsumexp(log_weights))
+        #                     )
+
+        # weights = jnp.asarray(out["weights"], dtype=jnp.float64)
+        # weights = jnp.where(jnp.isfinite(weights), weights, 0.0)
+        # weights = jnp.maximum(weights, 0.0)
+
+        # weight_sum = jnp.sum(weights)
+        # weights = jnp.where(
+        #     weight_sum > 0.0,
+        #     weights / weight_sum,
+        #     jnp.ones_like(weights) / weights.shape[0],
+        # )
+
+        # idx = jax.random.choice(
+        #     jax.random.fold_in(master_key, 3_000_000 + step),
+        #     jnp.arange(weights.shape[0]),
+        #     shape=(number_of_particles,),
+        #     replace=True,
+        #     p=weights,
+        # )
+
+        # step_sizes = jnp.asarray(out["epsilons"])[idx]
+        # lenghts = jnp.asarray(out["Ls"])[idx]
+
+
+        # jitter_key = jax.random.fold_in(master_key, 4_000_000 + step)
+
+        # step_sizes, lenghts = jitter_epsilon_L(
+        #     jitter_key,
+        #     step_sizes,
+        #     lenghts,
+        #     epsilon_min=epsilon_range[0],
+        #     epsilon_max=epsilon_range[1],
+        #     L_min=L_range[0],
+        #     L_max=L_range[1],
+        #     epsilon_jitter_scale=0.10,
+        #     L_jitter_width=2,
+        # )
+
+
+
+
+
+
+
+
+        
         mean_acceptance_rate = float(np.mean(nuts_info.acceptance_rate))
         # mean_num_integration_steps = float(np.mean(nuts_info.num_integration_steps))
         # mean_num_trajectory_expansions = float(np.mean(nuts_info.num_trajectory_expansions))
@@ -819,8 +916,14 @@ def run_sharpy(log_likelihood,
 
     with open(f"{folder}/{label}_result.json", "w") as f:
         json.dump(result_dict, f)
+
+
+    # with open(f"{folder}/{label}_le_dict.json", "w") as f:
+    #     json.dump(LE_dict, f)
     
     return result_dict
+
+
 
 
 
