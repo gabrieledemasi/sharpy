@@ -32,7 +32,7 @@ dependencies = [
                 "ripplegw",
                 "astropy",
                 "flax",
-                "blackjax @ git+https://github.com/gabrieledemasi/blackjax@main",
+                "blackjax",
                 "NetKet==3.20.5",
                 "jax",
                 "corner",
